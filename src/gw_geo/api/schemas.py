@@ -2,12 +2,15 @@
 
 Response shapes for the read endpoints (overview / visibility / sources / pipeline / ...) are added
 by their owning router tasks (T13-T16). This module holds the auth request bodies, the brand
-create/list/overview shapes (``routers/brands.py``, T13), and the visibility/sources shapes
-(``routers/visibility.py``, T14). The token response reuses :class:`gw_geo.api.auth.TokenPair`
+create/list/overview shapes (``routers/brands.py``, T13), the visibility/sources shapes
+(``routers/visibility.py``, T14), and the prompt/integration/snippet shapes
+(``routers/settings.py``, T16). The token response reuses :class:`gw_geo.api.auth.TokenPair`
 directly (no duplicate model).
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -128,3 +131,52 @@ class SourceOut(BaseModel):
     source_type: str
     you_pct: float
     competitor_pcts: dict[str, float]
+
+
+class PromptCreate(BaseModel):
+    """``POST /brands/{id}/prompts`` body (ui-spec.md §6, verbatim): ``text`` is required;
+    ``intent_cluster``/``geo``/``persona`` are all optional. A ``None``/omitted ``geo`` is resolved
+    to ``"us"`` by the router, matching ``Prompt.geo``'s column default."""
+
+    text: str
+    intent_cluster: str | None = None
+    geo: str | None = None
+    persona: str | None = None
+
+
+class PromptOut(BaseModel):
+    """A prompt as returned by ``GET /brands/{id}/prompts`` (ui-spec.md §6, verbatim)."""
+
+    id: str
+    text: str
+    intent_cluster: str | None
+    geo: str
+    persona: str | None
+
+
+class PromptCreated(BaseModel):
+    """``POST /brands/{id}/prompts`` response (ui-spec.md §6, verbatim): the new prompt's id."""
+
+    id: str
+
+
+class IntegrationConnect(BaseModel):
+    """``POST /integrations/{kind}`` body (ui-spec.md §6, verbatim): connector-specific setup, e.g.
+    a secret-store pointer under ``"access_token_ref"``/``"credentials_ref"`` -- never a raw
+    credential (see ``attribution.integrations``)."""
+
+    config: dict[str, Any]
+
+
+class IntegrationStatusOut(BaseModel):
+    """``POST /integrations/{kind}`` response (ui-spec.md §6, verbatim): the connector's resulting
+    status (``"connected"`` or ``"pending"``, per ``attribution.integrations.base.Integration``)."""
+
+    status: str
+
+
+class SnippetOut(BaseModel):
+    """``GET /lead-capture/snippet`` response (ui-spec.md §6, verbatim): the install ``<script>``
+    tag, carrying the brand's write-key (``attribution.ingest.mint_write_key``)."""
+
+    snippet: str

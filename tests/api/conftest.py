@@ -111,12 +111,28 @@ def viewer_token(make_token: Callable[..., str]) -> str:
 
 
 @pytest.fixture
+def editor_token(make_token: Callable[..., str]) -> str:
+    """A valid access token scoped to tenant ``t1`` whose role is ``editor`` (rejected by
+    ``require_role('admin')`` -- T16's ``POST /integrations/{kind}`` RBAC test)."""
+    return make_token(tenant_id="t1", role="editor")
+
+
+@pytest.fixture
+def admin_token(make_token: Callable[..., str]) -> str:
+    """A valid access token scoped to tenant ``t1`` whose role is ``admin`` (the minimum T16's
+    ``POST /integrations/{kind}`` accepts)."""
+    return make_token(tenant_id="t1", role="admin")
+
+
+@pytest.fixture
 def t1_token(make_token: Callable[..., str]) -> str:
     """A valid access token scoped to tenant ``t1`` (the tenant ``seeded_snapshots``/
-    ``seeded_citations`` seed brand ``b1`` under). ``viewer`` is enough: the T14 read endpoints
-    apply no RBAC gate, only tenant scoping.
+    ``seeded_citations`` seed brand ``b1`` under). Role ``editor``: the T14 read endpoints apply no
+    RBAC gate (``viewer`` would suffice for those), but T16's ``POST /brands/{id}/prompts`` requires
+    ``role >= editor`` and reuses this same fixture (per its task spec's failing test) -- bumped
+    here so both keep working from one fixture rather than forking a near-duplicate.
     """
-    return make_token(tenant_id="t1", role="viewer")
+    return make_token(tenant_id="t1", role="editor")
 
 
 @pytest.fixture
