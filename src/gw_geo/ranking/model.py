@@ -99,7 +99,15 @@ class EngineRankingModel:
 
         `direction` comes from the sign of the backend's reported importance: negative for a
         negative logistic-regression coefficient, "positive" for everything else (GBT importances
-        are always >= 0, so they are always "positive").
+        are always >= 0, so they are always "positive"). `direction`/`weight` are therefore left
+        exactly as reported -- only `explanation` (free text, not asserted on by callers that key
+        off `direction`) is worded to avoid overclaiming: a GBT `feature_importances_` is an
+        impurity-reduction *magnitude* with no sign at all, so "positively associated with
+        citation" is not a claim it actually supports. A negative weight can only come from a
+        genuinely signed backend (GBT's are always >= 0), so that case alone keeps a directional
+        "negatively associated" wording; a non-negative weight -- which may be a real positive
+        logreg coefficient or a directionless GBT magnitude, and `EngineRankingModel` has no way
+        to tell which -- gets the direction-agnostic "influential signal" wording instead.
         """
         weights = self._backend.feature_importances()
         factors = [
@@ -108,8 +116,11 @@ class EngineRankingModel:
                 weight=weight,
                 direction="negative" if weight < 0 else "positive",
                 explanation=(
-                    f"{name} is {'negatively' if weight < 0 else 'positively'} associated with "
-                    f"citation on {self._engine} (importance {weight:.3f})."
+                    f"{name} is negatively associated with citation on {self._engine} "
+                    f"(importance {weight:.3f})."
+                    if weight < 0
+                    else f"{name} is an influential, strong signal for citation on "
+                    f"{self._engine} (importance {weight:.3f})."
                 ),
             )
             for name, weight in zip(self._feature_names, weights, strict=True)

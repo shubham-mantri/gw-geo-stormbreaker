@@ -10,7 +10,7 @@ backends).
 from __future__ import annotations
 
 from gw_geo.common.models import FeatureVector, LabeledExample
-from gw_geo.ranking.model import FEATURE_NAMES, EngineRankingModel
+from gw_geo.ranking.model import _UNKNOWN_FRESHNESS_DAYS, FEATURE_NAMES, EngineRankingModel
 
 
 class FakeBackend:
@@ -31,6 +31,28 @@ class FakeBackend:
         return self._imp
 
 
+class _CapturingBackend:
+    """Records the raw `list[float]` rows it's fit/predicted on (never scores anything) --
+    lets a test assert on exactly what `EngineRankingModel` substituted for a `None` feature,
+    which the `FeatureVector`-level fakes above can't observe.
+    """
+
+    def __init__(self) -> None:
+        self.fit_rows: list[list[float]] | None = None
+        self.predict_rows: list[list[float]] | None = None
+
+    def fit(self, X: list[list[float]], y: list[int]) -> None:
+        self.fit_rows = X
+
+    def predict_proba(self, X: list[list[float]]) -> list[float]:
+        self.predict_rows = X
+        return [0.5 for _ in X]
+
+    def feature_importances(self) -> list[float]:
+        assert self.fit_rows is not None
+        return [0.0 for _ in self.fit_rows[0]]
+
+
 def _fv(structure: float) -> FeatureVector:
     return FeatureVector(
         structure_score=structure,
@@ -43,6 +65,11 @@ def _fv(structure: float) -> FeatureVector:
         has_faq=False,
         table_count=1,
     )
+
+
+def _fv_unknown_freshness(structure: float) -> FeatureVector:
+    """Like `_fv`, but `freshness_days=None` -- the "publish date unknown" case."""
+    return _fv(structure).model_copy(update={"freshness_days": None})
 
 
 def test_train_predict_and_importances() -> None:
@@ -61,3 +88,36 @@ def test_train_predict_and_importances() -> None:
 
 def test_feature_names_match_vector_order() -> None:
     assert FEATURE_NAMES[0] == "structure_score" and "embedding_similarity" in FEATURE_NAMES
+
+
+def test_train_predict_with_unknown_freshness_does_not_raise() -> None:
+    # `freshness_days=None` (publish date unknown) must not blow up `FeatureVector.as_list`'s
+    # `float(None)` cast -- a regression here would TypeError out of both `train` and `predict`.
+    m = EngineRankingModel("perplexity", FakeBackend())
+    m.train(
+        [
+            LabeledExample(engine="perplexity", features=_fv(0.9), cited=True),
+            LabeledExample(
+                engine="perplexity", features=_fv_unknown_freshness(0.1), cited=False
+            ),
+        ]
+    )
+    prediction = m.predict(_fv_unknown_freshness(0.5))
+    assert 0.0 <= prediction <= 1.0
+
+
+def test_unknown_freshness_is_substituted_with_stale_sentinel() -> None:
+    # Pins the actual substitution, not just "doesn't crash": an unknown publish date must read
+    # as very stale (`_UNKNOWN_FRESHNESS_DAYS`), never silently as `0.0`/maximally fresh -- which
+    # wouldn't raise a TypeError either, so the no-raise test above can't catch that regression.
+    backend = _CapturingBackend()
+    m = EngineRankingModel("perplexity", backend)
+    freshness_index = FEATURE_NAMES.index("freshness_days")
+
+    m.train([LabeledExample(engine="perplexity", features=_fv_unknown_freshness(0.9), cited=True)])
+    assert backend.fit_rows is not None
+    assert backend.fit_rows[0][freshness_index] == _UNKNOWN_FRESHNESS_DAYS
+
+    m.predict(_fv_unknown_freshness(0.1))
+    assert backend.predict_rows is not None
+    assert backend.predict_rows[0][freshness_index] == _UNKNOWN_FRESHNESS_DAYS

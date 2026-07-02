@@ -142,7 +142,7 @@ class ClaudeExtractor:
 
     _API_URL = "https://api.anthropic.com/v1/messages"
     _API_VERSION = "2023-06-01"
-    _DEFAULT_MODEL = "claude-opus-4-5"
+    _DEFAULT_MODEL = "claude-opus-4-8"
     _TOOL_NAME = "record_extraction"
 
     def __init__(
