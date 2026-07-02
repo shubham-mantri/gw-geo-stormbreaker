@@ -19,14 +19,10 @@ import random
 from typing import TYPE_CHECKING, Any
 
 from gw_geo.capture.base import CapturePage
+from gw_geo.capture.proxy_pool import Proxy
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page, Playwright
-
-# `Proxy` (a geo-aware proxy descriptor with a `.url`) is defined in `gw_geo.capture.proxy_pool`
-# (M1-T09), which lands in a later wave. Typed as `Any` here to avoid a forward dependency on
-# that module; tighten to the real `Proxy` type once T09 merges.
-Proxy = Any
 
 
 class BrowserSession:

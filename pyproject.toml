@@ -46,6 +46,9 @@ target-version = "py313"
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+  "live: real browser/proxy/account fleet; deselected by default",
+]
 
 [tool.mypy]
 python_version = "3.13"
