@@ -109,9 +109,11 @@ def seeded_full_attribution() -> SASession:
     So: leads=4, influenced=430, direct=180, citation_linked=200, assisted=50 (sum=430),
     attributed=380, top_answers={pb:$200/1, pa:$100/1}.
 
-    Plus a holdout cohort ``ho1`` (is_holdout=True, prompt ``p-hold``) whose tagged sessions
-    convert less than the untagged/optimized remainder, so ``measure_incrementality`` yields a
-    positive lift and therefore a positive ``holdout_incremental``.
+    Plus a holdout cohort ``ho1`` (is_holdout=True, prompt ``p-hold``) and a symmetric optimized
+    cohort ``ho1-opt`` (is_holdout=False, prompt ``p-opt``); the tagged holdout sessions convert
+    less than the tagged optimized-cohort sessions, so ``measure_incrementality`` yields a positive
+    lift and therefore a positive ``holdout_incremental``. Both arms are cohort-scoped, so the
+    untagged ``s1``-``s5`` sessions above fall in neither arm.
     """
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
@@ -145,18 +147,23 @@ def seeded_full_attribution() -> SASession:
     raw.add(_link("lk-a4", method="assisted", confidence="modeled", engine="aggregate",
                   lead_id="l4", session_id="s4", value=40.0))
 
-    # --- holdout mechanism: tagged (holdout) side converts worse than the remainder ---
+    # --- holdout mechanism: a holdout cohort (p-hold) vs a symmetric optimized cohort (p-opt); the
+    # tagged holdout side converts worse than the tagged optimized cohort. Both arms are
+    # cohort-scoped (m2-design §2.5), so the optimized cohort is seeded explicitly -- the untagged
+    # s1-s5 fuzzy-link sessions above are in NEITHER arm. ---
     raw.add(HoldoutCohort(id="ho1", tenant_id="t1", brand_id="b1", name="Q3 holdout",
                           kind="prompt", prompt_ids=["p-hold"], is_holdout=True))
+    raw.add(HoldoutCohort(id="ho1-opt", tenant_id="t1", brand_id="b1", name="Q3 optimized",
+                          kind="prompt", prompt_ids=["p-opt"], is_holdout=False))
     for i in range(4):
         sid = f"hold-s{i}"
         raw.add(_session(sid, utm={"prompt_id": "p-hold"}))
-        if i < 1:  # 1/4 convert on the un-optimized holdout side
+        if i < 1:  # 1/4 convert on the un-optimized holdout cohort
             raw.add(_lead(f"hold-l{i}", sid, 500.0))
     for i in range(4):
         sid = f"opt-s{i}"
         raw.add(_session(sid, utm={"prompt_id": "p-opt"}))
-        if i < 3:  # 3/4 convert on the optimized side
+        if i < 3:  # 3/4 convert on the optimized cohort
             raw.add(_lead(f"opt-l{i}", sid, 500.0))
 
     raw.commit()

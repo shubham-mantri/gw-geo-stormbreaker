@@ -1,24 +1,28 @@
 """Attribution mechanism 4 (TRD §6 #4, m2-design §2.5): holdout incrementality.
 
-Compares lead-conversion rate in a deliberately un-optimized **holdout** prompt cohort against the
-**optimized** complement (every other tracked-prompt session for the brand in the window) and
-reports the relative lift with a two-proportion confidence interval. This is the only mechanism in
-`attribution/` that supports a causal claim (PRD §13, m2-design §1); direct referral, citation
-linkage and assisted modeling are all correlational.
+Compares lead-conversion rate in a deliberately un-optimized **holdout** prompt cohort against an
+**optimized** cohort -- each defined by its own `holdout_cohort` row -- and reports the relative
+lift with a two-proportion confidence interval. This is the only mechanism in `attribution/` that
+supports a causal claim (PRD §13, m2-design §1); direct referral, citation linkage and assisted
+modeling are all correlational.
 
-**Cohort membership.** Neither `session` nor `lead` carries a `prompt_id` column (that join only
-exists via `attribution_link`, written by the *other* mechanisms -- out of scope here; T09 depends
-on T02 only, not T05/T06/T07). Holdout incrementality is designed to stand apart from those fuzzier
-attribution links entirely: it is a controlled-experiment read over raw traffic, not a credit-
+**Cohort membership (symmetric).** Neither `session` nor `lead` carries a `prompt_id` column (that
+join only exists via `attribution_link`, written by the *other* mechanisms -- out of scope here;
+T09 depends on T02 only, not T05/T06/T07). Holdout incrementality is designed to stand apart from
+those fuzzier attribution links entirely: it is a controlled-experiment read, not a credit-
 assignment model. The join this module needs -- "which tracked prompt drove this session" -- is
 carried directly on `session.utm["prompt_id"]`, populated by the lead-capture pixel when the
-landing page targets a prompt under a live holdout experiment (m2-design §2.1). A session whose
-`utm["prompt_id"]` is in `holdout_cohort.prompt_ids` falls on whichever side of the split
-`is_holdout` marks that cohort row as; every other brand session in the window (including
-untagged, non-experiment traffic) is the complement side. A `lead` counts toward a side when its
-`session_id` falls in that side's session-id set -- so the unit of analysis is "did this exposure
-(session) convert to a lead", the same proportion-with-sample-size shape as every other metric in
-this codebase (TRD §3).
+landing page targets a prompt under a live holdout experiment (m2-design §2.1). A session joins the
+**holdout** arm when its `utm["prompt_id"]` names a prompt in a holdout cohort (`is_holdout=True`),
+and the **optimized** arm when it names a prompt in an optimized cohort (`is_holdout=False`) -- the
+two arms are built the *same* way, each from its own cohort. Untagged organic/direct traffic, and
+traffic tagged to a prompt in neither cohort, is tied to **no** cohort and is therefore excluded
+from **both** arms -- keeping this a symmetric, apples-to-apples comparison (m2-design §2.5:
+"un-optimized holdout cohort vs an optimized cohort") rather than "holdout vs all other traffic",
+which would bias the lift by dumping non-experiment traffic into the optimized denominator. A
+`lead` counts toward an arm when its `session_id` falls in that arm's session-id set -- so the unit
+of analysis is "did this exposure (session) convert to a lead", the same proportion-with-sample-
+size shape as every other metric in this codebase (TRD §3).
 
 This join convention (`utm["prompt_id"]`) is an implementation decision, not a TRD-pinned contract
 -- flagged in the task report for the orchestrator/user to confirm it stays consistent with
@@ -92,6 +96,27 @@ def _relative_lift_ci(
     return diff / hold_rate, diff_low / hold_rate, diff_high / hold_rate
 
 
+def _complement_prompt_ids(
+    session: TenantScopedSession, brand_id: str, *, is_holdout: bool
+) -> set[str]:
+    """Union of `prompt_ids` across every `holdout_cohort` for `brand_id` carrying the given
+    `is_holdout` flag -- the tracked prompts whose tagged sessions make up that experiment arm.
+
+    Resolves the *complement* of the cohort the caller named: the optimized arm when the caller
+    passed the holdout cohort, or the holdout arm when it passed the optimized one. Returns an
+    empty set when the brand has no cohort on that side (e.g. no optimized cohort at all), which
+    `measure_incrementality` treats as an empty arm -- "nothing to compare against".
+    """
+    prompt_ids: set[str] = set()
+    for row in (
+        session.query(HoldoutCohort)
+        .filter(HoldoutCohort.brand_id == brand_id, HoldoutCohort.is_holdout.is_(is_holdout))
+        .all()
+    ):
+        prompt_ids.update(row.prompt_ids)
+    return prompt_ids
+
+
 def measure_incrementality(
     session: TenantScopedSession,
     *,
@@ -103,10 +128,27 @@ def measure_incrementality(
 ) -> HoldoutResult:
     """Mechanism 4 (TRD §6 #4): holdout-vs-optimized incremental lift with a CI.
 
+    Both arms are **cohort-scoped and symmetric**: a session joins an arm only when its
+    `utm["prompt_id"]` names a prompt in that arm's `holdout_cohort`. The `cohort_id` the caller
+    names is one arm -- the holdout arm when that cohort is `is_holdout=True`, the optimized arm
+    when it is `is_holdout=False` -- and the brand's cohort(s) carrying the opposite `is_holdout`
+    flag form the other arm (`_complement_prompt_ids`). Untagged organic/direct traffic, and
+    traffic tagged to a prompt in neither cohort, is tied to no cohort and is therefore excluded
+    from **both** arms, so this stays an apples-to-apples controlled comparison (m2-design §2.5)
+    rather than "holdout vs all other traffic".
+
     `session` must already be a `TenantScopedSession` bound to `tenant_id` (TRD §7); every read
     below goes through it (plus an explicit `brand_id` filter), so no cross-tenant/-brand row can
     leak into the result. Raises `ValueError` if `session` is scoped to a different tenant, or if
     no `holdout_cohort` row matches `(brand_id, cohort_id)` for this tenant.
+
+    **No optimized cohort (empty comparison arm).** If the optimized arm draws no sessions in the
+    window -- because the brand has no `is_holdout=False` cohort at all, or its optimized cohort
+    matched no tagged session -- there is nothing to compare the holdout arm against, so no causal
+    lift is measurable. Rather than divide by an empty arm (or, as the old behaviour did, quietly
+    fall back to comparing against all non-holdout traffic), this returns a graceful zero result
+    (`lift_pct=0.0`, `ci_low=ci_high=0.0`, `significant=False`) -- honestly claiming no lift. It
+    mirrors the finite `hold_rate == 0` fallback in `_relative_lift_ci` for the empty-holdout edge.
     """
     if session.tenant_id != tenant_id:
         raise ValueError(f"session is scoped to tenant_id={session.tenant_id!r}, not {tenant_id!r}")
@@ -119,18 +161,25 @@ def measure_incrementality(
     if cohort is None:
         raise ValueError(f"no holdout_cohort {cohort_id!r} for brand {brand_id!r}")
 
-    start, end = _inclusive_window(since, until)
-    cohort_prompt_ids = set(cohort.prompt_ids)
+    # The named cohort is one arm; its complement (same brand, opposite is_holdout flag) is the
+    # other. Both arms are prompt-id sets -- membership is by session tag, not "everything else".
+    if cohort.is_holdout:
+        holdout_prompt_ids = set(cohort.prompt_ids)
+        optimized_prompt_ids = _complement_prompt_ids(session, brand_id, is_holdout=False)
+    else:
+        optimized_prompt_ids = set(cohort.prompt_ids)
+        holdout_prompt_ids = _complement_prompt_ids(session, brand_id, is_holdout=True)
 
+    start, end = _inclusive_window(since, until)
     sessions = (
         session.query(Session)
         .filter(Session.brand_id == brand_id, Session.ts >= start, Session.ts < end)
         .all()
     )
-    marked_ids = {s.id for s in sessions if s.utm.get("prompt_id") in cohort_prompt_ids}
-    other_ids = {s.id for s in sessions if s.id not in marked_ids}
-    holdout_session_ids = marked_ids if cohort.is_holdout else other_ids
-    optimized_session_ids = other_ids if cohort.is_holdout else marked_ids
+    holdout_session_ids = {s.id for s in sessions if s.utm.get("prompt_id") in holdout_prompt_ids}
+    optimized_session_ids = {
+        s.id for s in sessions if s.utm.get("prompt_id") in optimized_prompt_ids
+    }
 
     leads = (
         session.query(Lead).filter(Lead.brand_id == brand_id, Lead.ts >= start, Lead.ts < end).all()
@@ -140,6 +189,22 @@ def measure_incrementality(
 
     n_holdout = len(holdout_session_ids)
     n_optimized = len(optimized_session_ids)
+
+    if n_optimized == 0:
+        # Empty optimized arm -> no comparison possible; report no lift rather than dividing by an
+        # empty arm or reverting to the biased "all non-holdout traffic" comparison (see docstring).
+        return HoldoutResult(
+            cohort_id=cohort_id,
+            holdout_leads=holdout_leads,
+            optimized_leads=0,
+            n_holdout=n_holdout,
+            n_optimized=0,
+            lift_pct=0.0,
+            ci_low=0.0,
+            ci_high=0.0,
+            significant=False,
+        )
+
     lift_pct, ci_low, ci_high = _relative_lift_ci(
         holdout_leads, n_holdout, optimized_leads, n_optimized
     )
