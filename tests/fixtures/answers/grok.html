@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Grok</title>
+</head>
+<body>
+  <header class="site-header">
+    <nav>
+      <a href="/home">Home</a>
+      <a href="/settings">Settings</a>
+    </nav>
+  </header>
+  <main>
+    <div data-testid="grok-conversation">
+      <div class="prompt">best crm for smb?</div>
+      <div data-testid="grok-answer">
+        <p>
+          For small and medium-sized businesses, HubSpot and Zoho CRM are consistently the
+          top picks thanks to their generous free tiers and fast setup. Pipedrive is a strong
+          alternative if your team wants a lightweight, pipeline-first workflow.
+        </p>
+      </div>
+      <div data-testid="grok-citations">
+        <h3>Sources</h3>
+        <ol class="sources-list">
+          <li><a href="https://www.g2.com/categories/crm">G2: Best CRM Software</a></li>
+          <li><a href="https://www.softwareadvice.com/crm/">Software Advice: CRM</a></li>
+          <li><a href="https://www.g2.com/categories/crm/">G2: Best CRM Software (dup)</a></li>
+          <li><a href="https://www.capterra.com/crm-software/#pricing">Capterra: CRM Pricing</a></li>
+          <li><a href="/i/redirect?to=internal">Internal redirect (not a citation)</a></li>
+          <li><a href="mailto:support@grok.example">Contact support</a></li>
+        </ol>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <a href="https://x.com/legal/privacy">Privacy (outside citations container)</a>
+  </footer>
+</body>
+</html>
