@@ -30,14 +30,24 @@ functions:
     # event source needed.
     handler: gw_geo.handlers.run_drift.handler
     environment:
-      # Keys read by build_runtime + the ClaudeExtractor + S3RawArchive + DB session this
-      # handler wires today; more M1 engine keys (Gemini/Copilot/DeepSeek) join here once
-      # M1-T18 wires them into build_runtime's registration.
+      # Keys read by build_runtime (M1-T18 registers every engine by config), the ClaudeExtractor,
+      # the S3RawArchive, and the DB session this handler wires. API-engine keys register their
+      # adapter when set (claude keys off GEO_ANTHROPIC_API_KEY; DeepSeek also needs
+      # GEO_DEEPSEEK_ENABLED, off by default per TRD OT3 -- set it explicitly to opt in).
       GEO_DATABASE_URL: ${env:GEO_DATABASE_URL, ''}
       GEO_S3_BUCKET: ${env:GEO_S3_BUCKET, ''}
       GEO_PERPLEXITY_API_KEY: ${env:GEO_PERPLEXITY_API_KEY, ''}
       GEO_OPENAI_API_KEY: ${env:GEO_OPENAI_API_KEY, ''}
       GEO_ANTHROPIC_API_KEY: ${env:GEO_ANTHROPIC_API_KEY, ''}
+      GEO_GEMINI_API_KEY: ${env:GEO_GEMINI_API_KEY, ''}
+      GEO_COPILOT_API_KEY: ${env:GEO_COPILOT_API_KEY, ''}
+      GEO_DEEPSEEK_API_KEY: ${env:GEO_DEEPSEEK_API_KEY, ''}
+      # Capture-fleet refs for the Playwright surfaces (google_ai_overviews/chatgpt/grok). Left
+      # empty here: build_runtime only attempts the live browser fleet when BOTH are set, and that
+      # deploy path needs the SecretProvider layer that resolves these refs into ProxyPool/
+      # AccountPool material (not yet implemented -- see wiring._build_live_capture).
+      GEO_PROXY_POOL_CONFIG_REF: ${env:GEO_PROXY_POOL_CONFIG_REF, ''}
+      GEO_ACCOUNT_POOL_CONFIG_REF: ${env:GEO_ACCOUNT_POOL_CONFIG_REF, ''}
       GEO_DRIFT_THRESHOLD: ${env:GEO_DRIFT_THRESHOLD, '0.2'}
       GEO_DRIFT_SNS_TOPIC_ARN: ${env:GEO_DRIFT_SNS_TOPIC_ARN, ''}
     events:
