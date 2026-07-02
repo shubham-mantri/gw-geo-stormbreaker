@@ -27,6 +27,11 @@ where = ["src"]
 line-length = 100
 target-version = "py313"
 
+[tool.ruff.lint.per-file-ignores]
+# Spec-mandated test body (docs/tasks/M0-T06-*.md) uses semicolon-joined statements
+# verbatim; keep the test byte-identical to the spec rather than reformatting it.
+"tests/measurement/probe/test_base.py" = ["E702"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
