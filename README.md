@@ -73,3 +73,8 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
+
+> **Capture fleet (M1+):** `playwright` is an installed Python dependency, but its browser
+> binaries are not — they're a deploy/live prerequisite only. Run `playwright install chromium`
+> before exercising the live capture fleet (`@pytest.mark.live`, M1-T16); the default test suite
+> never launches a browser.
