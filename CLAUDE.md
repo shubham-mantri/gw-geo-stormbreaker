@@ -54,5 +54,6 @@ Pinecone) · S3-compatible storage · Next.js/React dashboard (see `docs/ui-spec
 - Run M0 pipeline (after T14): `python -m gw_geo.cli measure --brand <id> --engines perplexity,openai --n 8`
 
 ## Current status
-Scaffold + PRD + TRD + UI spec + M0 task breakdown complete. **No feature code yet.** M0 is ready
-to implement — start with Wave 0.
+✅ **M0 implemented** (T01–T14 merged, TDD). 📐 **M1 designed** (`docs/m1-design.md`).
+🔜 Next: break M1 into `docs/tasks/M1-T*.md` (same wave format as M0), then "start implementation"
+for M1. After M1, M2 builds the dashboard (`docs/ui-spec.md`).

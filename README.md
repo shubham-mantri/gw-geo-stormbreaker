@@ -56,8 +56,11 @@ See [`docs/architecture.md`](docs/architecture.md) for the data-flow diagram.
 
 ## Status
 
-🚧 **Scaffold only.** Package structure, PRD, TRD, and M0 tasks are in place. No feature code yet —
-implementation begins after the M0 plan (see [`docs/tasks/`](docs/tasks/)).
+✅ **M0 implemented** — the measurement pipeline (models, DB + tenant scoping, config, cost
+governor, engine-adapter registry, Perplexity + OpenAI adapters, parse, Wilson-CI aggregation,
+runner, CLI + Lambda handler) with a TDD test suite. See git history (`merge(m0): T01…T14`).
+📐 **M1 designed** ([`docs/m1-design.md`](docs/m1-design.md)) — ≥8 engines + capture fleet + drift + feed.
+🔜 **Next:** M1 task breakdown → implement; then M2 dashboard ([`docs/ui-spec.md`](docs/ui-spec.md)).
 
 ## Development
 
