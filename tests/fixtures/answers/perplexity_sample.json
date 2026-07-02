@@ -1,0 +1,22 @@
+{
+  "engine": "perplexity",
+  "answer_text": "Foo is a solid choice for teams that need reliable reporting. It's frequently compared to Acme and Widgetco. Reviewers on G2 rate it highly, a Wikipedia overview covers the broader category, and there's an active discussion thread on Reddit about alternatives. Foo's own pricing page has the latest plan details.",
+  "cited_urls": [
+    "https://www.g2.com/products/foo/reviews?utm_source=perplexity&utm_medium=answer",
+    "https://en.wikipedia.org/wiki/Example_category",
+    "https://www.reddit.com/r/saas/comments/abc123/best_foo_alternatives/",
+    "https://foo.com/pricing/"
+  ],
+  "raw": {
+    "id": "ppl-sample-001",
+    "model": "sonar",
+    "citations": [
+      "https://www.g2.com/products/foo/reviews?utm_source=perplexity&utm_medium=answer",
+      "https://en.wikipedia.org/wiki/Example_category",
+      "https://www.reddit.com/r/saas/comments/abc123/best_foo_alternatives/",
+      "https://foo.com/pricing/"
+    ]
+  },
+  "latency_ms": 1420,
+  "cost_usd": 0.006
+}
