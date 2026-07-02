@@ -1,0 +1,13 @@
+{
+  "dimensionHeaders": [{"name": "sessionSource"}],
+  "metricHeaders": [{"name": "sessions", "type": "TYPE_INTEGER"}],
+  "rows": [
+    {"dimensionValues": [{"value": "chatgpt.com"}], "metricValues": [{"value": "18"}]},
+    {"dimensionValues": [{"value": "chat.openai.com"}], "metricValues": [{"value": "4"}]},
+    {"dimensionValues": [{"value": "perplexity.ai"}], "metricValues": [{"value": "9"}]},
+    {"dimensionValues": [{"value": "google"}], "metricValues": [{"value": "512"}]},
+    {"dimensionValues": [{"value": "(direct)"}], "metricValues": [{"value": "77"}]}
+  ],
+  "rowCount": 5,
+  "metadata": {"currencyCode": "USD", "timeZone": "America/Los_Angeles"}
+}
