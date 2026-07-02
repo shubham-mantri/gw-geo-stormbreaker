@@ -6,10 +6,11 @@ via `TenantScopedSession` so cross-tenant reads/writes are impossible by constru
 """
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypeVar
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
-from sqlalchemy.orm import DeclarativeBase, Mapped, Query, Session, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, Query, mapped_column
+from sqlalchemy.orm import Session as SASession
 
 
 class Base(DeclarativeBase):
@@ -18,6 +19,12 @@ class Base(DeclarativeBase):
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# TypeVar for the generic, tenant-scoped `TenantScopedSession.query(model)` accessor. Bound to
+# `Base` so any ORM model is accepted; the runtime filter only makes sense for models carrying a
+# `tenant_id` column (see `TenantScopedSession.query`).
+_ModelT = TypeVar("_ModelT", bound=Base)
 
 
 class Tenant(Base):
@@ -171,15 +178,163 @@ class VisibilityRollup(Base):
     n_samples: Mapped[int] = mapped_column(Integer)
 
 
+class Session(Base):
+    """Lead-capture pixel session (m2-design §2.1/§8): one row per beaconed pageview.
+
+    The origin of direct-referral attribution -- `referrer`/`utm` classify the arriving engine
+    (`engine`, nullable until classified). Tenant-scoped like every business table.
+    """
+
+    __tablename__ = "session"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    visitor_id: Mapped[str] = mapped_column(String, nullable=False)
+    landing_url: Mapped[str] = mapped_column(String, nullable=False)
+    referrer: Mapped[str | None] = mapped_column(String, nullable=True)
+    utm: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)
+    engine: Mapped[str | None] = mapped_column(String, nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class Lead(Base):
+    """A captured lead (m2-design §2.1/§8), linked to its originating `session` when known.
+
+    `email`/`value_usd`/`crm_stage`/`self_reported_source` are all optional -- they fill in over
+    the lead lifecycle (form capture -> CRM enrichment). Tenant-scoped.
+    """
+
+    __tablename__ = "lead"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    visitor_id: Mapped[str] = mapped_column(String, nullable=False)
+    session_id: Mapped[str | None] = mapped_column(ForeignKey("session.id"), index=True, nullable=True)
+    email: Mapped[str | None] = mapped_column(String, nullable=True)
+    value_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    crm_stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    self_reported_source: Mapped[str | None] = mapped_column(String, nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class AttributionLink(Base):
+    """One attribution edge (m2-design §2.2-§2.6/§8): ties a `lead`/`session` to an engine via a
+    named `method` at a stated `confidence`.
+
+    `method` in {direct, citation_linked, assisted, holdout_incremental};
+    `confidence` in {high, medium, reported, modeled, low}. Both are `String` and validated in the
+    app layer (attribution package), not the DB. `lead_id`/`session_id` are nullable so a link can
+    represent an influenced-but-unconverted session (direct) or a self-reported lead with no tracked
+    session (assisted); `citation_id`/`prompt_id` are nullable until the citation-linkage step
+    identifies which answer/prompt drove the visit. Tenant-scoped.
+    """
+
+    __tablename__ = "attribution_link"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    lead_id: Mapped[str | None] = mapped_column(ForeignKey("lead.id"), index=True, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(ForeignKey("session.id"), index=True, nullable=True)
+    citation_id: Mapped[str | None] = mapped_column(ForeignKey("citation.id"), index=True, nullable=True)
+    prompt_id: Mapped[str | None] = mapped_column(ForeignKey("prompt.id"), index=True, nullable=True)
+    engine: Mapped[str] = mapped_column(String, nullable=False)
+    method: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[str] = mapped_column(String, nullable=False)
+    value_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class HoldoutCohort(Base):
+    """A prompt/geo cohort for holdout incrementality (m2-design §2.5/§8).
+
+    `is_holdout` distinguishes the deliberately-un-optimized holdout arm from its optimized
+    comparison arm; `prompt_ids` is the JSON set of prompts in the cohort. Tenant-scoped.
+    """
+
+    __tablename__ = "holdout_cohort"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    geo: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_holdout: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class Integration(Base):
+    """A CRM/GA4 connection's persisted state (m2-design §5/§8).
+
+    `config_ref` is a pointer to the encrypted secret (SSM), never the secret itself, and is null
+    until connected. `kind` in {hubspot, salesforce, ga4} (app-validated). Tenant-scoped.
+    """
+
+    __tablename__ = "integration"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    config_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AppUser(Base):
+    """An authenticating user (m2-design §7).
+
+    SYSTEM-LEVEL: intentionally has NO `tenant_id` -- a user is not owned by a tenant; the
+    user<->tenant<->role mapping lives in `Membership`, so one user can belong to several tenants.
+    This is a documented exception to the per-row `tenant_id` rule (like `drift_event`).
+    """
+
+    __tablename__ = "app_user"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class Membership(Base):
+    """The auth join (m2-design §7): grants `user_id` a `role` within `tenant_id`.
+
+    `role` in {owner, admin, editor, viewer} (app-validated). Carries `tenant_id` (so it is
+    tenant-scopable) but is the mapping table itself, not a business record.
+    """
+
+    __tablename__ = "membership"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("app_user.id"), index=True, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class TenantScopedSession:
     """Wraps a `Session`, binding it to one `tenant_id` so cross-tenant reads/writes can't happen.
 
     TRD §7: "a `TenantScopedSession` wrapper injects the filter; no cross-tenant reads."
     """
 
-    def __init__(self, session: Session, tenant_id: str) -> None:
+    def __init__(self, session: SASession, tenant_id: str) -> None:
         self._session = session
         self.tenant_id = tenant_id
+
+    def query(self, model: type[_ModelT]) -> Query[_ModelT]:
+        """Query any tenant-scoped `model`, auto-filtered to this session's tenant.
+
+        Works for every model carrying a `tenant_id` column (all M0/M1/M2 business tables plus
+        `Membership`). Calling it with a system-level model that has no `tenant_id`
+        (e.g. `AppUser`, `DriftEvent`) raises `AttributeError` by design -- those are never
+        tenant-scoped.
+        """
+        return self._session.query(model).filter(getattr(model, "tenant_id") == self.tenant_id)
 
     def query_brands(self) -> Query[Brand]:
         """Query `Brand` rows, auto-filtered to this session's tenant."""
