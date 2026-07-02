@@ -1,0 +1,80 @@
+{
+  "id": "msg_01SmbCrmAnswer123456789",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5-20250929",
+  "content": [
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_01WebSearchCall98765",
+      "name": "web_search",
+      "input": {
+        "query": "best crm for smb"
+      }
+    },
+    {
+      "type": "web_search_tool_result",
+      "tool_use_id": "srvtoolu_01WebSearchCall98765",
+      "content": [
+        {
+          "type": "web_search_result",
+          "url": "https://www.g2.com/categories/crm",
+          "title": "Best CRM Software Reviews 2026 | G2",
+          "encrypted_content": "EtAAeyJ0eXBlIjogIndlYl9zZWFyY2hfcmVzdWx0In0",
+          "page_age": "3 days ago"
+        },
+        {
+          "type": "web_search_result",
+          "url": "https://www.capterra.com/customer-relationship-management-software/",
+          "title": "CRM Software Pricing Comparison - Capterra",
+          "encrypted_content": "EtABeyJ0eXBlIjogIndlYl9zZWFyY2hfcmVzdWx0In0",
+          "page_age": "1 week ago"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "For small and midsize businesses, HubSpot CRM and Zoho CRM are the two most frequently recommended options.",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://www.g2.com/categories/crm",
+          "title": "Best CRM Software Reviews 2026 | G2",
+          "encrypted_index": "EqYBCkYIBBgCIkA",
+          "cited_text": "HubSpot CRM and Zoho CRM are the two most frequently recommended options"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": " Zoho CRM stands out for its price-to-feature ratio, and Reddit users in r/smallbusiness often point to Pipedrive as a lightweight, sales-first alternative.",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://www.capterra.com/customer-relationship-management-software/",
+          "title": "CRM Software Pricing Comparison - Capterra",
+          "encrypted_index": "EqYBCkYIBBgCIkB",
+          "cited_text": "Zoho CRM stands out for its price-to-feature ratio"
+        },
+        {
+          "type": "web_search_result_location",
+          "url": "https://www.reddit.com/r/smallbusiness/comments/1a2b3c/best_crm_alternatives/",
+          "title": "Best CRM alternatives for small teams? : r/smallbusiness",
+          "encrypted_index": "EqYBCkYIBBgCIkC",
+          "cited_text": "Reddit users in r/smallbusiness often point to Pipedrive"
+        }
+      ]
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 612,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 143,
+    "server_tool_use": {
+      "web_search_requests": 1
+    }
+  }
+}
