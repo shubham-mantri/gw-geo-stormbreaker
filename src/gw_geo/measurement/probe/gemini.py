@@ -8,6 +8,7 @@ never calls `measurement.probe.base.register()` itself; that happens at wiring t
 
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -34,12 +35,45 @@ def _compute_cost_usd(model: str, usage: dict[str, Any]) -> float:
     return (prompt_tokens * rate_in + completion_tokens * rate_out) / 1_000_000
 
 
+# Real Generative-Language grounding responses never return the source URL directly: every
+# `groundingChunks[*].web.uri` is an opaque Vertex *redirect* on this host, and the actual source
+# domain is carried in `web.title` (typically a bare host like `reddit.com`). Recovering the title
+# is what keeps `classify_source` from tagging every live Gemini citation as `other`.
+_VERTEX_REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+
+
+def _citation_url(chunk: dict[str, Any]) -> str | None:
+    """Resolve one grounding chunk to an http(s) citation URL, or `None` if it has no usable one.
+
+    A normal `http(s)` `web.uri` is returned unchanged. When `web.uri` points at the Vertex
+    grounding-redirect host (the live case), that redirect is opaque, so the citation is derived
+    from `web.title` -- the real source -- instead: a bare host like `reddit.com` is normalized to
+    `https://reddit.com`, while a title that is already a full URL is used as-is.
+    """
+    web = chunk.get("web", {})
+    uri = web.get("uri")
+    if not isinstance(uri, str) or not uri:
+        return None
+
+    if urlsplit(uri).netloc.lower() != _VERTEX_REDIRECT_HOST:
+        # A direct source URL -- keep it only if it's http(s) (cited_urls are always http(s)).
+        return uri if uri.startswith(("http://", "https://")) else None
+
+    # Vertex redirect -> recover the real source from the title.
+    title = web.get("title")
+    if not isinstance(title, str) or not title.strip():
+        return None
+    title = title.strip()
+    return title if title.startswith(("http://", "https://")) else f"https://{title}"
+
+
 def _extract_answer(payload: dict[str, Any]) -> tuple[str, list[str]]:
     """Concatenate answer text across `content.parts[*].text`; collect grounding citation URLs.
 
-    Citation URLs come from `groundingMetadata.groundingChunks[*].web.uri` on the first
-    candidate. The same URL may back more than one grounding chunk -- e.g. supporting several
-    claims in the answer -- so URLs are de-duplicated while preserving first-seen order.
+    Citation URLs are resolved from `groundingMetadata.groundingChunks[*]` on the first candidate
+    via `_citation_url`, which unwraps Vertex grounding-redirect URIs to their real source domain.
+    The same source may back more than one grounding chunk -- e.g. supporting several claims in the
+    answer -- so URLs are de-duplicated while preserving first-seen order.
     """
     candidates = payload.get("candidates", [])
     if not candidates:
@@ -53,7 +87,7 @@ def _extract_answer(payload: dict[str, Any]) -> tuple[str, list[str]]:
     seen_urls: set[str] = set()
     grounding_chunks = candidate.get("groundingMetadata", {}).get("groundingChunks", [])
     for chunk in grounding_chunks:
-        url = chunk.get("web", {}).get("uri")
+        url = _citation_url(chunk)
         if url and url not in seen_urls:
             seen_urls.add(url)
             cited_urls.append(url)
