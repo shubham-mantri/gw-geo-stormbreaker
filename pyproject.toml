@@ -29,6 +29,11 @@ dependencies = [
   "mangum>=0.17",
   "argon2-cffi>=23.1",
   "PyJWT>=2.8",
+  # Ranking ML (M3-T11+) and the knowledge-base vector store (M3-T06+). Real-impl-only: hermetic
+  # tests inject fake `ModelBackend`/`VectorStore` doubles and never import these packages, so
+  # they are not required for the default (`not live`) test gate.
+  "scikit-learn>=1.5",
+  "pinecone-client>=5.0",
 ]
 
 [project.optional-dependencies]

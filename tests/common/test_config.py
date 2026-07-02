@@ -1,5 +1,6 @@
 import importlib  # noqa: F401 -- imported per task spec verbatim; unused in this test module
 from gw_geo.common import config
+from gw_geo.common.config import Settings
 
 def test_env_overrides(monkeypatch):
     monkeypatch.setenv("GEO_DEFAULT_N_SAMPLES", "20")
@@ -27,3 +28,19 @@ def test_m1_env_overrides(monkeypatch):
     assert s.gemini_api_key == "g-key"
     assert s.deepseek_enabled is True
     assert s.drift_threshold == 0.35
+
+def test_m3_defaults_present():
+    s = Settings()
+    assert s.vector_store == "pinecone"
+    assert s.ranking_model_type in {"gbt", "logreg"}
+    assert 0.0 < s.originality_threshold < 1.0
+    assert s.claim_sim_threshold == 0.8
+    assert s.brand_voice_min == 0.7
+    assert s.hosted_subdomain_base.endswith(".com")
+
+def test_m3_env_override(monkeypatch):
+    monkeypatch.setenv("GEO_RANKING_MODEL_TYPE", "logreg")
+    monkeypatch.setenv("GEO_ORIGINALITY_THRESHOLD", "0.15")
+    s = Settings()
+    assert s.ranking_model_type == "logreg"
+    assert s.originality_threshold == 0.15
