@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "id": "1001",
+      "properties": {
+        "dealstage": "closedwon",
+        "amount": "5000",
+        "email": "a@x.com"
+      }
+    }
+  ]
+}
