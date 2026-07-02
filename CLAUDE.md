@@ -1,15 +1,18 @@
 # gw-geo-stormbreaker — Orchestrator Guide
 
-GEO / AI-search visibility · attribution · execution service for the Stormbreaker platform.
+A standalone product for GEO / AI-search visibility · attribution · execution.
 This file is the entry point for **subagent-driven implementation**. A fresh session that is told
 to "start implementation" should follow the process below.
+
+> Independent, self-contained project. Does not depend on or integrate with any other codebase.
 
 ## The documents (read in this order)
 1. [`docs/prd.md`](docs/prd.md) — product requirements (what & why).
 2. [`docs/trd.md`](docs/trd.md) — technical design (how). **Interface contracts here are binding.**
 3. [`docs/architecture.md`](docs/architecture.md) — data-flow overview.
-4. [`docs/tasks/README.md`](docs/tasks/README.md) — the task index, dependency DAG, and wave plan.
-5. [`docs/tasks/M0-T*.md`](docs/tasks/) — one self-contained, TDD-first task per file.
+4. [`docs/ui-spec.md`](docs/ui-spec.md) — dashboard screens + API contract (the end-user product).
+5. [`docs/tasks/README.md`](docs/tasks/README.md) — the task index, dependency DAG, and wave plan.
+6. [`docs/tasks/M0-T*.md`](docs/tasks/) — one self-contained, TDD-first task per file.
 
 ## Role: orchestrator (you)
 You do **not** write feature code yourself. You dispatch one subagent per task, review its output,
@@ -37,19 +40,19 @@ unless asked).
 - Do not let a subagent change an interface defined in the TRD without surfacing it to the user.
 - Do not start a task whose dependencies (see DAG) haven't merged.
 - White-hat only — no grey-hat GEO tactics ever enter this codebase (PRD NG1).
+- Self-contained: do not add dependencies on external/shared internal services; this project
+  stands alone.
 - Conventions (branch `m0/T<NN>-<slug>`, commit format, `Co-Authored-By` trailer, TDD, hermetic
   tests) are in `docs/tasks/README.md` → "Conventions".
 
-## Platform context
-Part of the 25+ repo Stormbreaker platform (`~/stormbreaker`, conventions in
-`gw-stormbreaker-platform/CLAUDE.md`). This repo is the Python backend service; API/UI/migrations
-become sibling `gw-*` repos at M2. Stack: Python 3.13 · Lambda + Step Functions · Postgres ·
-Pinecone · S3.
+## Stack
+Python 3.13 · async workers (Lambda or containers) · PostgreSQL · vector store (pgvector or
+Pinecone) · S3-compatible storage · Next.js/React dashboard (see `docs/ui-spec.md`).
 
 ## Quick commands
 - `make install` — install deps · `make check` — ruff + mypy + pytest · `make test` — tests.
 - Run M0 pipeline (after T14): `python -m gw_geo.cli measure --brand <id> --engines perplexity,openai --n 8`
 
 ## Current status
-Scaffold + PRD + TRD + M0 task breakdown complete. **No feature code yet.** M0 is ready to
-implement — start with Wave 0.
+Scaffold + PRD + TRD + UI spec + M0 task breakdown complete. **No feature code yet.** M0 is ready
+to implement — start with Wave 0.

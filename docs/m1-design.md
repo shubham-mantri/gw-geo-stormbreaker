@@ -108,8 +108,8 @@ def run_drift_canary(session, *, engines: list[str], threshold: float = 0.2,
 ## 5. Subsystem D — Dashboards feed (`measurement/feed.py`)
 
 A read/query layer producing dashboard-ready aggregates from `visibility_snapshot`, consumed by the
-M2 dashboard/API repo (`gw-api-geo`). In-repo query module **plus** a `visibility_rollup` table for
-efficient time-series.
+M2 API layer + `web/` dashboard (`docs/ui-spec.md`). In-repo query module **plus** a
+`visibility_rollup` table for efficient time-series.
 
 ```python
 def visibility_timeseries(session, *, tenant_id, brand_id, engine=None, geo=None,

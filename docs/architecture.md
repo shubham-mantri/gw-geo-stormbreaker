@@ -45,10 +45,11 @@ Companion to [`prd.md`](prd.md). Data-flow view of the seven subsystems.
 - **Human approval gate** before any content is published or seeded (enterprise + brand safety).
 - **White-hat only:** no hidden-text/prompt-injection/cloaking. Compliance rules engine on seeding.
 
-## Platform fit
+## Stack (self-contained)
 
-Mirrors `gw-backend-stormbreaker`: Python 3.13 · Lambda + Step Functions · Serverless
-Framework · Postgres · Pinecone · S3. Auth via `gw-authorizer` / `gw-fga`. Deploy order and
-cross-repo contracts follow `gw-stormbreaker-platform/CLAUDE.md` when API/UI repos are added.
+Standalone, no external/shared services: Python 3.13 · async workers (Lambda or containers) ·
+PostgreSQL (system of record) · vector store (pgvector or Pinecone) · S3-compatible object
+storage · self-contained auth (JWT + lightweight RBAC, or a hosted provider) · Next.js/React
+dashboard (see [`ui-spec.md`](ui-spec.md)).
 
 See [`trd.md`](trd.md) for the technical design and interface contracts.

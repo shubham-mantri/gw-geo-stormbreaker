@@ -1,32 +1,36 @@
 # gw-geo-stormbreaker
 
-GEO / AI-search **visibility · attribution · execution** service for the Stormbreaker platform.
+A standalone product for **AI-search visibility · attribution · execution**.
 
-Gets Gushwork clients **found and recommended by AI answer engines** (ChatGPT, Gemini,
-Perplexity, Google AI Overviews/AI Mode, Copilot, Claude, Grok, DeepSeek), **executes** the
-content that earns those citations, and **attributes** the resulting leads and pipeline —
-closing the loop that measurement-only incumbents (Profound, Athena, Scrunch) leave open.
+Gets a brand **found and recommended by AI answer engines** (ChatGPT, Gemini, Perplexity,
+Google AI Overviews/AI Mode, Copilot, Claude, Grok, DeepSeek), **executes** the content that
+earns those citations, and **attributes** the resulting leads and pipeline — closing the loop
+that measurement-only incumbents (Profound, Athena, Scrunch) leave open.
 
-> **Full product spec:** [`docs/prd.md`](docs/prd.md)
+> This is an independent, self-contained project. It does not depend on or integrate with any
+> other codebase — its own stack, auth, storage, and deploy.
+
+> **Full product spec:** [`docs/prd.md`](docs/prd.md) · **Technical design:** [`docs/trd.md`](docs/trd.md)
+> · **UI spec:** [`docs/ui-spec.md`](docs/ui-spec.md)
 
 ---
 
 ## Why this exists
 
-Incumbents tell a brand *"you're mentioned 14% of the time"* and stop. This service adds the
+Incumbents tell a brand *"you're mentioned 14% of the time"* and stop. This product adds the
 two things they don't: it **does the work** (grounded content generation + on-site publishing +
 off-site seeding) and **proves the money** (citation → visitor → captured lead → pipeline).
 North-star metric: **attributed pipeline influenced by AI search**.
 
-## Place in the Stormbreaker platform
+## Shape of the project
 
-Follows the `gw-*-stormbreaker` conventions (see `gw-stormbreaker-platform/CLAUDE.md`).
-This is the **Python backend service** for the GEO system. API, UI, and DB-migration
-concerns will be separate repos per platform convention when we reach those milestones.
-
-- **Stack (target):** Python 3.13 · AWS Lambda + Step Functions · Serverless Framework ·
-  PostgreSQL · Pinecone · S3 — matching `gw-backend-stormbreaker`.
-- **Reuses:** Gushwork's existing content-generation, publishing, and lead-capture stack.
+- **`backend`** (this repo root, Python) — the measurement/attribution/execution engine + API.
+- **`web`** (planned) — a standalone Next.js dashboard, the end-user product. See
+  [`docs/ui-spec.md`](docs/ui-spec.md).
+- **Stack:** Python 3.13 · async workers (Lambda or containers) · PostgreSQL · a vector store
+  (pgvector or Pinecone) · S3-compatible object storage · Next.js/React frontend.
+- Self-contained auth (JWT + lightweight RBAC, or a hosted provider like Clerk/Auth0) — no
+  external/shared auth service.
 
 ## Architecture (7 subsystems)
 
@@ -46,31 +50,19 @@ See [`docs/architecture.md`](docs/architecture.md) for the data-flow diagram.
 
 - **M0** — Foundations: data platform, 1–2 engine adapters, capture + storage proven.
 - **M1** — Measurement GA: ≥8 engines, sampling/aggregation with CIs, drift canary. *(Independently shippable.)*
-- **M2** — Attribution: referral capture + citation-to-page + CRM/GA4 + holdout framework.
+- **M2** — Attribution + **the dashboard UI goes live**: referral capture + citation-to-page + CRM/GA4 + holdout framework.
 - **M3** — Execution (on-site): knowledge base, grounded generation, guardrails, publish.
 - **M4** — Execution (off-site) + self-adaptation + RaaS pricing pilot.
 
 ## Status
 
-🚧 **Scaffold only.** Package structure, PRD, and config are in place. No feature code yet —
-implementation begins after the M0 plan is written (see the implementation plan, next step).
+🚧 **Scaffold only.** Package structure, PRD, TRD, and M0 tasks are in place. No feature code yet —
+implementation begins after the M0 plan (see [`docs/tasks/`](docs/tasks/)).
 
 ## Development
 
 ```bash
-# from repo root (once dependencies are pinned in M0)
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
-```
-
-## Layout
-
-```
-gw-geo-stormbreaker/
-├── docs/            # prd.md, architecture.md
-├── src/gw_geo/      # the 7 subsystem packages (see table above)
-├── tests/
-├── pyproject.toml
-└── serverless.yml   # skeleton; fleshed out in M0
 ```

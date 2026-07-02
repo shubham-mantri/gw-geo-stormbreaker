@@ -19,23 +19,23 @@ CLI and a Lambda handler, under a per-tenant sampling budget.
 
 ---
 
-## 2. System context & platform fit
+## 2. System context (self-contained)
 
-Follows `gw-*-stormbreaker` conventions (`gw-stormbreaker-platform/CLAUDE.md`).
+Independent project — no external/shared services, no cross-repo coupling.
 
-- **Language/runtime:** Python 3.13.
-- **Compute:** AWS Lambda + Step Functions, Serverless Framework v4 (mirrors `gw-backend-stormbreaker`).
-- **Datastores:** PostgreSQL (system of record), Pinecone (embeddings for semantic-match features
-  and content grounding), S3 (raw answer payloads / large artifacts).
-- **Async:** SQS for probe fan-out; Step Functions for the orchestrated loop.
-- **Auth (when API/UI land):** `gw-authorizer` (JWT) + `gw-fga` (OpenFGA) — not in M0.
-- **Secrets:** AWS SSM Parameter Store, injected at deploy (no secrets in repo).
+- **Language/runtime:** Python 3.13 (backend); TypeScript/Next.js (dashboard, §11 / `ui-spec.md`).
+- **Compute:** async workers on AWS Lambda + Step Functions (Serverless Framework v4) — or plain
+  containers; the code is deploy-target-agnostic behind the runner interface.
+- **Datastores:** PostgreSQL (system of record), a vector store (pgvector or Pinecone) for
+  semantic-match features and content grounding, S3-compatible object storage (raw answer payloads).
+- **Async:** SQS (or any queue) for probe fan-out; Step Functions (or a workflow lib) for the loop.
+- **Auth (when API/UI land):** self-contained — JWT + lightweight RBAC, or a hosted provider
+  (Clerk/Auth0). Not in M0.
+- **Secrets:** environment / SSM, injected at deploy (no secrets in repo).
 
-**Repo boundaries (per platform convention):** this repo is the **Python backend service**.
-When we reach M2+, the API layer (`gw-api-geo`, Node/TS) and dashboard (`gw-ui-geo` or a
-module in `gw-uimr-stormbreaker`) and migrations (`gw-db-migrations-geo`) become separate repos.
-For M0/M1, DB schema is managed in-repo via Alembic to stay self-contained; it migrates to the
-platform migrations repo at M2 (tracked as an open item).
+**Repo shape:** a single self-contained project. This root is the **Python backend + API**; the
+dashboard lives in a `web/` app (or sibling frontend), talking to the API over HTTP. DB schema is
+managed in-repo via Alembic. No shared/platform migration or auth repos.
 
 ---
 
@@ -45,7 +45,7 @@ platform migrations repo at M2 (tracked as an open item).
 |---|---|---|
 | Domain models | **Pydantic v2** | Validation at boundaries; serialization for SQS/S3; matches modern Python Lambda code |
 | DB access | **SQLAlchemy 2.0 (core + ORM)** + **Alembic** | Typed models, explicit migrations, standard in Python serverless |
-| Engine API clients | Official SDKs where present (OpenAI, Google GenAI, Anthropic), `httpx` for the rest (Perplexity Sonar, DeepSeek) | Reliability; async support via `httpx.AsyncClient` |
+| Engine API clients | Official SDKs where present (OpenAI, Google GenAI, Anthropic), `httpx` for the rest (Perplexity Sonar, DeepSeek) | Reliability; async support via `httpx.AsyncClient`; self-contained, no shared client lib |
 | Headless capture (M1+) | **Playwright** (async) for consumer surfaces (ChatGPT UI, Google AI Overviews, Grok) | AI Overviews/consumer ChatGPT have no citation-returning API |
 | Sentiment / extraction | LLM-based extractor (Claude) with a strict JSON schema | Robust to answer-format variety; deterministic via tool/JSON mode |
 | Stats | `scipy.stats` / `statsmodels` | Wilson confidence intervals for proportions |
@@ -152,13 +152,13 @@ beyond a threshold (design only in M0).
 
 Four layered mechanisms (strongest→weakest), see PRD §6.2:
 1. **Direct referral capture** — detect AI-engine referrers (`chatgpt.com`, `perplexity.ai`,
-   `gemini.google.com`, …) on inbound sessions via Gushwork lead-capture; write `attribution_link`.
+   `gemini.google.com`, …) on inbound sessions via the product's own lead-capture pixel/SDK; write `attribution_link`.
 2. **Citation-to-page linkage** — join `citation.url` (our seeded pages) to AI-referred sessions.
 3. **Assisted modeling** — branded-search lift correlated to visibility gains; self-reported
    "how did you hear" ingestion.
 4. **Holdout incrementality** — un-optimized prompt/geo cohorts vs optimized; report lift.
 Output: pipeline view (`$ influenced`, `$ attributed`, leads, top-converting prompts).
-Integrations: HubSpot/Salesforce, GA4, Gushwork lead-capture, offline-conversion upload.
+Integrations: HubSpot/Salesforce, GA4, the product's own lead-capture pixel/SDK, offline-conversion upload.
 
 ---
 
@@ -184,7 +184,7 @@ per-engine channel recommendations. Generation/placement modeled as a bandit; me
 ## 9. Content engine (M3) — design intent
 Brand knowledge base (grounding) → conditioned generation (Claude/GPT) shaped to learned feature
 profile → guardrails (plagiarism, claim-verification vs KB, brand-voice) → **human approval gate**
-→ publish (CMS connectors / hosted subdomain). Reuses Gushwork generation+publishing stack.
+→ publish (CMS connectors / hosted subdomain). Built in-repo (no external content stack).
 
 ## 10. Off-site seeding (M4) — design intent
 Target discovery from citation-source map → per-channel briefs + human-in-the-loop placement →
@@ -196,8 +196,9 @@ tracking.
 ## 11. API surface (M2; M0 exposes CLI + Lambda only)
 - M0: `python -m gw_geo.cli measure --brand <id> --engines perplexity,openai --n 8` and a
   Lambda handler `handlers/run_measurement.py`.
-- M2 REST (in `gw-api-geo`): `/brands`, `/prompts`, `/visibility`, `/pipeline`, `/opportunities`,
-  `/alerts`; webhooks for lead ingestion; MCP connector for client LLM access.
+- M2 REST (this project's API layer): `/brands`, `/prompts`, `/visibility`, `/pipeline`,
+  `/opportunities`, `/alerts`; webhooks for lead ingestion; MCP connector for client LLM access.
+  Consumed by the `web/` dashboard (see [`ui-spec.md`](ui-spec.md) for the full contract).
 
 ---
 
@@ -227,6 +228,6 @@ tracking.
 ## 14. Open technical items
 - OT1. In-house capture-fleet (proxies/accounts) build vs managed — confirmed **in-house** (PRD OQ1);
   M1 needs a proxy/account-pool design doc before Playwright adapters.
-- OT2. DB migrations in-repo (Alembic) for M0/M1, migrate to `gw-db-migrations-geo` at M2.
+- OT2. DB migrations in-repo (Alembic) throughout — self-contained, no external migration repo.
 - OT3. Engine list priority: Western engines first; DeepSeek/Doubao gated on APAC client demand (PRD OQ5).
 - OT4. Embeddings store: Pinecone (platform standard) vs pgvector — default Pinecone; revisit on cost.

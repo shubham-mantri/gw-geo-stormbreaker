@@ -1,8 +1,9 @@
 # PRD — Stormbreaker: AI-Search Visibility, Attribution & Execution Platform
 
 **Status:** Draft v1 · **Owner:** dev@gushwork.ai · **Last updated:** 2026-07-02
-**Repo:** `gw-geo-stormbreaker` (new service in the Stormbreaker platform) · **Product name:** TBD
-**Note:** "Stormbreaker" in this doc was a product placeholder. Stormbreaker is in fact Gushwork's existing content/SEO platform (25+ `gw-*-stormbreaker` repos); this service is a **new GEO extension** of it. A distinct product/GTM name is an open item (see §14, OQ3).
+**Repo:** `gw-geo-stormbreaker` (working name) · **Product name:** TBD
+**Note:** A standalone, self-contained product. It does not depend on or integrate with any other
+codebase — its own stack, auth, storage, and deploy. Product/GTM branding is an open item (§14, OQ3).
 
 ---
 
@@ -31,8 +32,14 @@ Buyers increasingly research and shortlist vendors by asking AI assistants ("wha
 - **Weak execution.** Athena's generated content has documented plagiarism/accuracy problems; Scrunch writes nothing (infra-only); Profound's agents are a maturing 2026 bolt-on that still depends on the customer's own CMS.
 - **Off-site blind spot.** LLMs cite Reddit, G2, Wikipedia, news, comparison sites — the tools *report* which sources matter but don't *place* content there.
 
-### 1.3 Why us
-Gushwork already operates, in production, the three assets incumbents lack: a **content generation + auto-publishing engine**, **lead capture + attribution on every page**, and a **done-for-you delivery muscle**. Stormbreaker productizes these into a standalone enterprise platform, with an in-house measurement layer as the system of record.
+### 1.3 Why this wins
+The wedge is owning the **whole loop** incumbents refuse to: not just measurement, but the
+**execution** (generate → publish → seed the content that earns citations) and the
+**attribution** (citation → visitor → captured lead → pipeline) on top of it. This product builds
+all three in-house — its own measurement system of record, its own content/publishing engine, its
+own lead-capture + attribution. The compounding moat is the proprietary dataset it accumulates:
+**content → citation → lead**, which no measurement-only competitor can assemble because none of
+them ever see the lead.
 
 ### 1.4 Market reality check (honest)
 AI-search referrals are still a small share of total traffic today. The attribution pillar is a deliberate hedge: it is the instrument that will *prove* when this channel crosses the ROI threshold — and we will own that data before anyone else. We design for the world where this share compounds, while giving buyers a defensible reason to pay now (measured leads, not vanity metrics).
@@ -53,7 +60,7 @@ AI-search referrals are still a small share of total traffic today. The attribut
 - NG1. Grey-hat tactics (hidden-text prompt injection, cloaking, serving divergent content to bots). Explicitly out — white-hat only; it's a brand-safety liability for enterprise clients and a platform-policy risk.
 - NG2. A licensed consumer-conversation panel at Profound's scale (prompt-volume estimation is v2; we approximate in v1 — see §6.1).
 - NG3. Full e-commerce/Shopping product-feed optimization (v2).
-- NG4. Paid-ads management (that's Gushwork core / Tec-Do territory, not this product).
+- NG4. Paid-ads management / DSP — out of scope; this product is organic AI-search only.
 
 ---
 
@@ -139,14 +146,14 @@ Seven subsystems around a shared data platform. The core loop mirrors the proven
 **Purpose:** Connect AI-search presence to real business outcomes. This is the differentiator; it must be defensible even though perfect causal attribution is impossible.
 
 **Mechanisms (layered, strongest to weakest):**
-1. **Direct referral capture.** Tag and detect sessions arriving from AI engines (referrer/UTM where available, e.g. `chatgpt.com`, `perplexity.ai`, `gemini.google.com`). Lands the visitor in Gushwork's existing lead-capture; record `answer_engine → landing_page → lead → CRM stage → $`.
+1. **Direct referral capture.** Tag and detect sessions arriving from AI engines (referrer/UTM where available, e.g. `chatgpt.com`, `perplexity.ai`, `gemini.google.com`). Lands the visitor in the product's own lead-capture (tracking pixel/SDK on client pages); record `answer_engine → landing_page → lead → CRM stage → $`.
 2. **Citation-to-page linkage.** When the harness sees our seeded page/URL cited for a prompt, and that same URL then receives AI-referred sessions, link them.
 3. **Assisted/last-non-direct modeling.** For buyers who see the brand in an AI answer then arrive later via branded search/direct, use a probabilistic assist model (surveys "how did you hear about us", branded-search lift correlated to visibility gains, holdout geos).
 4. **Holdout experiments.** For a subset of prompts/topics, deliberately do not optimize; compare lead flow vs optimized cohort to estimate incremental lift. This is the credibility backbone — sell *incrementality*, not vanity.
 
 **Output:** a pipeline/revenue view: "AI search influenced $X pipeline this quarter; $Y directly attributed; Z leads; top-converting prompts/answers." Board-ready.
 
-**Integrations:** CRM (HubSpot, Salesforce), GA4, Gushwork lead-capture, form/webhook ingestion, offline-conversion upload.
+**Integrations:** CRM (HubSpot, Salesforce), GA4, the product's own lead-capture pixel/SDK, form/webhook ingestion, offline-conversion upload.
 
 ### 6.3 Feature/Rank ML — *what earns citations*
 
@@ -168,8 +175,8 @@ Seven subsystems around a shared data platform. The core loop mirrors the proven
 - **Grounding & brand knowledge base** per client (approved facts, USPs, products, claims, pricing, certifications) — the source of truth for generation. Prevents the hallucination/plagiarism failures that plague Athena.
 - **Conditioned generation:** LLM (Claude/GPT) produces content shaped to the target engine's learned feature profile + intent cluster; formats optimized for extraction (direct-answer blocks, FAQ/HowTo schema/JSON-LD, comparison tables, quantified stats).
 - **Guardrails:** originality/plagiarism check, claim-verification against the knowledge base, brand-voice conformance, no fabricated stats. **Human approval gate** before publish (enterprise requirement).
-- **Publishing:** to client CMS via connectors (WordPress, Webflow, Framer, headless/API) or a Gushwork-hosted knowledge-base subdomain; freshness metadata (datePublished/dateModified), sitemap resubmission.
-- Reuse Gushwork's existing generation + publishing stack; wrap with the grounding/guardrail/gate layer.
+- **Publishing:** to client CMS via connectors (WordPress, Webflow, Framer, headless/API) or a product-hosted knowledge-base subdomain; freshness metadata (datePublished/dateModified), sitemap resubmission.
+- Built in-repo: LLM generation + a publishing connector layer, wrapped with the grounding/guardrail/gate.
 
 ### 6.5 Off-Site Seeding — *execution, off-site (nobody else does this)*
 
@@ -188,7 +195,7 @@ Seven subsystems around a shared data platform. The core loop mirrors the proven
 **Purpose:** Run the loop and keep it working as engines change.
 - **Workflow engine** schedules probes, triggers generation/seeding against ranked opportunities, routes approvals.
 - **Drift detection:** continuous canary prompts; when citation rates for known-good patterns drop sharply → alert + trigger re-measurement + retrain §6.3. (This is "self-sensing" = monitoring + scheduled retraining + alerting; classic MLOps, not magic.)
-- **Agent layer** reuses Gushwork's agent infrastructure for the repeatable steps (research, draft, gap-analysis).
+- **Agent layer** (in-repo) runs the repeatable steps (research, draft, gap-analysis) via an LLM agent loop.
 
 ### 6.7 Dashboard / API / Reporting
 
@@ -267,7 +274,8 @@ Enterprise-readiness (SSO, RBAC, SOC 2 path, audit logs) is threaded through M1�
 - **Data/ML eng (1–2):** feature model, aggregation stats, attribution modeling, drift/retraining.
 - **Full-stack/product eng (2):** dashboard, API, integrations, multi-tenancy.
 - **Applied content/AEO strategist (1):** ground truth, guardrails, seeding playbooks, compliance rules.
-- **PM + design (1 each).** Reuse Gushwork's existing generation/publishing/lead-capture stack to compress M3.
+- **Frontend eng (1).** The Next.js dashboard (see `ui-spec.md`), from M2.
+- **PM + design (1 each).**
 
 ---
 
@@ -281,7 +289,7 @@ Enterprise-readiness (SSO, RBAC, SOC 2 path, audit logs) is threaded through M1�
 | Content quality/hallucination (Athena's failure) | Knowledge-base grounding + claim verification + human approval gate |
 | Off-site seeding drifts into grey-hat/astroturfing | Hard white-hat guardrails, per-platform ToS engine, disclosure; NG1 |
 | Category ROI still unproven (<5% traffic) | Attribution *is* the instrument that proves timing; sell measured value, not hype |
-| Incumbents (esp. $1B Profound) move into execution/attribution | Speed + Gushwork's existing execution+lead-capture moat; own the SMB-DFY data flywheel they lack |
+| Incumbents (esp. $1B Profound) move into execution/attribution | Speed + focus on the closed loop; own the content→citation→lead data flywheel they can't assemble (they never see the lead) |
 
 ---
 
@@ -289,7 +297,7 @@ Enterprise-readiness (SSO, RBAC, SOC 2 path, audit logs) is threaded through M1�
 
 - OQ1. Build the measurement account/proxy fleet in-house vs. managed vendor for *just the capture infra* (not the analytics)? (User chose in-house measurement — confirm this extends to the raw capture infra.)
 - OQ2. Which CRM to integrate first (HubSpot vs Salesforce) — driven by target-customer profile.
-- OQ3. Standalone brand/domain, or "Gushwork Stormbreaker"? Affects GTM and whether it's sold to non-Gushwork customers day one.
+- OQ3. Product brand/domain name (currently working name `gw-geo-stormbreaker`). Affects GTM.
 - OQ4. RaaS component in v1 pricing, or prove attribution first then introduce it?
 - OQ5. Geographic/engine priority — Western engines only in v1, or include DeepSeek/Doubao for APAC clients?
 
