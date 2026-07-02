@@ -59,6 +59,9 @@ target-version = "py313"
 # Spec-mandated test body (docs/tasks/M3-T03-*.md) uses a semicolon-joined statement
 # verbatim; keep the test byte-identical to the spec rather than reformatting it.
 "tests/common/test_models_m3.py" = ["E702"]
+# Spec-mandated test body (docs/tasks/M3-T09-*.md) uses semicolon- and colon-joined
+# statements verbatim; keep the test byte-identical to the spec rather than reformatting it.
+"tests/content/publish/test_base.py" = ["E701", "E702"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
