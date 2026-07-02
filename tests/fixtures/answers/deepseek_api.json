@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-9f3a1b2c3d4e5f6a7b8c9d0e1f2a3b4c",
+  "object": "chat.completion",
+  "created": 1751500800,
+  "model": "deepseek-chat",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "For small and midsize businesses, HubSpot CRM and Zoho CRM are the most frequently recommended options thanks to generous free tiers and strong price-to-feature ratios. Pipedrive is also a popular lightweight, sales-first alternative for smaller teams."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 14,
+    "completion_tokens": 58,
+    "total_tokens": 72
+  }
+}
