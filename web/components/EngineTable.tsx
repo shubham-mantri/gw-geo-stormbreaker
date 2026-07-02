@@ -30,15 +30,19 @@ function engineLabel(engine: string): string {
   return ENGINE_LABELS[engine] ?? engine;
 }
 
-/** Map a sentiment label to an emoji + accessible text. */
-const SENTIMENT: Record<string, { emoji: string; label: string }> = {
-  positive: { emoji: "🙂", label: "Positive" },
-  neutral: { emoji: "😐", label: "Neutral" },
-  negative: { emoji: "🙁", label: "Negative" },
-};
+/**
+ * Map a raw sentiment score (−1..1) to an emoji + accessible label by threshold. The backend
+ * returns a float score (never a label), so we bucket it here: > 0.15 positive, < −0.15 negative,
+ * else neutral.
+ */
+function sentimentDisplay(score: number): { emoji: string; label: string } {
+  if (score > 0.15) return { emoji: "🙂", label: "Positive" };
+  if (score < -0.15) return { emoji: "🙁", label: "Negative" };
+  return { emoji: "😐", label: "Neutral" };
+}
 
-function Sentiment({ sentiment }: { sentiment: string }) {
-  const s = SENTIMENT[sentiment] ?? { emoji: "•", label: sentiment };
+function Sentiment({ sentiment }: { sentiment: number }) {
+  const s = sentimentDisplay(sentiment);
   return (
     <span title={s.label}>
       <span aria-hidden="true">{s.emoji}</span>

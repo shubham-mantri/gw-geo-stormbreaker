@@ -255,3 +255,34 @@ def test_confidence_note_states_causal_caveat(seeded_full_attribution: SASession
     assert "causal" in note
     assert "correlational" in note
     assert "assisted" in note
+
+
+def test_assisted_strongest_lead_credits_persisted_weighted_value() -> None:
+    """PRD §13 anti-overclaim (review fix #1): an assisted-strongest lead contributes only the
+    probability-weighted value the assisted writer persisted (``lead.value_usd * min(r, 1.0)``),
+    never its full lead value -- otherwise a low-confidence modelled lift is silently booked at
+    100c on the dollar.
+
+    A $1000 lead credited by assisted modelling at ``r = 0.3`` (so ``assisted.py`` persisted a
+    ``$300`` link) must show ``$300`` in both the assisted bucket and ``influenced`` -- not
+    ``$1000`` -- and nothing in ``attributed`` (assisted is not a defensible method).
+    """
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    raw = SASession(engine)
+    raw.add(Tenant(id="t1", name="Acme", sampling_budget_daily=100.0))
+    raw.add(Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com", competitors=[]))
+    # A $1000 lead on a branded/direct (engine=None) session, credited by assisted modelling. The
+    # assisted writer persisted value_usd = 1000 * min(0.3, 1.0) = 300 on the link.
+    raw.add(_session("s1", engine=None))
+    raw.add(_lead("l1", "s1", 1000.0))
+    raw.add(_link("lk-a1", method="assisted", confidence="modeled", engine="aggregate",
+                  lead_id="l1", session_id="s1", value=300.0))
+    raw.commit()
+
+    out = pipeline_view(raw, tenant_id="t1", brand_id="b1", since=_SINCE, until=_UNTIL)
+    assert out["leads"] == 1
+    assert out["method_breakdown"]["assisted"] == pytest.approx(300.0)  # weighted, NOT 1000
+    assert out["influenced"] == pytest.approx(300.0)  # reflects the weighted credit, not 1000
+    assert out["attributed"] == pytest.approx(0.0)  # assisted is never defensible
+    assert out["attributed"] <= out["influenced"]

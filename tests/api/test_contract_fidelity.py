@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from tests.api.schemas_uispec import (
     ALERTS_SCHEMA,
     BRANDS_SCHEMA,
+    INTEGRATION_STATUS_SCHEMA,
     OVERVIEW_SCHEMA,
     PIPELINE_SCHEMA,
     PROMPTS_SCHEMA,
@@ -90,3 +91,18 @@ def test_snippet_matches_uispec(
     # The dashboard's fixed client sends the brand_id query param (M2-T21 lib/api.ts fix); mirror it.
     body = _get(app_client, "/lead-capture/snippet?brand_id=b1", t1_token)
     jsonschema.validate(body, SNIPPET_SCHEMA)
+
+
+def test_integration_connect_matches_uispec(
+    app_client: TestClient, admin_token: str
+) -> None:
+    # review fix #7: the one M2 *write* whose response the dashboard reads (`{status}`) is now
+    # pinned to the ui-spec too. (Request-body + full types<->schema codegen deferred to M3 --
+    # see schemas_uispec.INTEGRATION_STATUS_SCHEMA.)
+    resp = app_client.post(
+        "/integrations/hubspot",
+        json={"config": {"access_token_ref": "ssm://tenants/t1/hubspot"}},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert resp.status_code == 200, f"/integrations/hubspot -> {resp.status_code}: {resp.text}"
+    jsonschema.validate(resp.json(), INTEGRATION_STATUS_SCHEMA)

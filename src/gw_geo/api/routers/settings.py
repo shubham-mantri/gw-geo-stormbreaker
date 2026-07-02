@@ -154,7 +154,11 @@ def connect_integration(
     return IntegrationStatusOut(status=result["status"])
 
 
-@router.get("/lead-capture/snippet", response_model=SnippetOut)
+@router.get(
+    "/lead-capture/snippet",
+    response_model=SnippetOut,
+    dependencies=[Depends(require_role("editor"))],
+)
 def get_snippet(
     brand_id: str,
     scoped: Annotated[TenantScopedSession, Depends(scoped_session)],
@@ -164,7 +168,8 @@ def get_snippet(
     """``GET /lead-capture/snippet`` (ui-spec §3.8/§6) -- the install ``<script>`` tag for
     ``brand_id``, carrying a write-key minted for the *caller's own* tenant (from the token, never
     client-supplied) via ``attribution.ingest.mint_write_key`` (the ``resolve_write_key`` inverse,
-    T05)."""
+    T05). Requires ``role >= editor`` (review fix #4): the minted write-key is a credential, so
+    reading it is gated like the sibling write endpoints (a ``viewer`` token -> 403)."""
     _reject_foreign_brand(session, tenant_id=scoped.tenant_id, brand_id=brand_id)
     key = mint_write_key(scoped.tenant_id, brand_id, salt=settings.pixel_write_key_salt)
     return SnippetOut(snippet=f'<script src="{_PIXEL_SNIPPET_SRC}" data-key="{key}"></script>')

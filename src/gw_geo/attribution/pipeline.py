@@ -16,10 +16,14 @@ the controlled experiment) -- is called live here for the ``lift`` figure.
 
 **Dedup per lead (no double-count).** A single lead can carry several links: a ``direct`` link (T06,
 keyed on its session), a standalone ``citation_linked`` link (T07, keyed on the same session, no
-``lead_id`` of its own), and an ``assisted`` link (T08, keyed on the lead). Each lead's value is
-counted **once**, and the lead is assigned to its **strongest** method (``direct`` >
-``citation_linked`` > ``assisted``) for the breakdown, so the three lead-buckets are disjoint and
-sum exactly to ``influenced``. ``attributed`` is the defensible subset -- leads whose strongest
+``lead_id`` of its own), and an ``assisted`` link (T08, keyed on the lead). Each lead is counted
+**once**, and the lead is assigned to its **strongest** method (``direct`` > ``citation_linked`` >
+``assisted``) for the breakdown, so the three lead-buckets are disjoint and sum exactly to
+``influenced``. The value counted is the lead's **full** value for a ``direct``/``citation_linked``
+lead (an observed AI referral), but the **probability-weighted** value ``assisted.py`` persisted
+(``lead.value_usd * min(r, 1.0)``) for an ``assisted``-strongest lead -- honouring, rather than
+discarding, that weighting (PRD §13 anti-overclaim: a low-confidence modelled lift must never be
+booked at full lead value). ``attributed`` is the defensible subset -- leads whose strongest
 method is ``direct`` or ``citation_linked`` -- and therefore is always ``<= influenced`` (asserted
 defensively as well).
 
@@ -167,7 +171,8 @@ def pipeline_view(
     Returns::
 
         {
-          "influenced": float,        # $ of leads touched by ANY mechanism (dedup per lead)
+          "influenced": float,        # $ touched by ANY mechanism (dedup per lead; assisted
+                                      #   leads contribute their probability-weighted value)
           "attributed": float,        # $ whose strongest method is direct|citation_linked
           "leads": int,               # count of touched leads
           "lift": float,              # holdout incrementality lift_pct -- the only causal number
@@ -179,9 +184,11 @@ def pipeline_view(
 
     ``session`` is a raw SQLAlchemy ``Session``; it is scoped to ``tenant_id`` internally so every
     read is tenant-safe (TRD §7). ``visibility_series`` is accepted for signature parity with the
-    ``/overview`` composition (which has the branded-lift series to hand); aggregation reads the
-    already-persisted ``assisted`` links, which encode that branded-lift weighting, so it is not
-    needed here -- flagged in the task report.
+    ``/overview`` composition (which has the branded-lift series to hand) but is not needed here:
+    the branded-lift weighting was already applied by ``assisted.py`` when it persisted each
+    assisted link's ``value_usd``, and this function reads that persisted weighted value directly
+    for any assisted-strongest lead (rather than the lead's full value) -- so it never needs to
+    re-derive the correlation.
     """
     scoped = TenantScopedSession(session, tenant_id)
     start, end = _inclusive_window(since, until)
@@ -198,11 +205,16 @@ def pipeline_view(
     methods_by_lead: dict[str, set[str]] = {}
     methods_by_session: dict[str, set[str]] = {}
     prompt_by_session: dict[str, str] = {}  # session -> citation_linked prompt (drives top_answers)
+    # assisted.py persists a *probability-weighted* credit (link.value_usd = lead.value_usd *
+    # min(r, 1.0)); an assisted-strongest lead is booked at THAT value, not its full lead value.
+    assisted_value_by_lead: dict[str, float] = {}
     for link in links:
         if link.method not in _LEAD_METHODS:
             continue
         if link.lead_id is not None:
             methods_by_lead.setdefault(link.lead_id, set()).add(link.method)
+            if link.method == "assisted" and link.value_usd is not None:
+                assisted_value_by_lead[link.lead_id] = link.value_usd
         if link.session_id is not None:
             methods_by_session.setdefault(link.session_id, set()).add(link.method)
             if link.method == "citation_linked" and link.prompt_id is not None:
@@ -223,11 +235,22 @@ def pipeline_view(
 
         touched_leads += 1
         value = lead.value_usd if lead.value_usd is not None else 0.0
-        influenced += value
-        buckets[_strongest_method(methods)] += value  # counted once, under the strongest method
+        strongest = _strongest_method(methods)
+        # An assisted-strongest lead contributes only the probability-weighted credit the assisted
+        # writer persisted (assisted.py: lead.value_usd * min(r, 1.0)) -- never the full lead value,
+        # which would silently discard the branded-lift weighting and inflate a low-confidence
+        # modelled figure to 100c on the dollar (PRD §13 anti-overclaim). Direct / citation_linked
+        # leads are observed AI referrals and keep their full value. (Falls back to full value only
+        # for the degenerate case of an assisted method reaching a lead with no persisted assisted
+        # link value of its own, e.g. a shared session -- vanishingly rare, and never an inflation.)
+        credit = assisted_value_by_lead.get(lead.id, value) if strongest == "assisted" else value
+        influenced += credit
+        buckets[strongest] += credit  # counted once, under the strongest method
 
         # top_answers credits the cited answer that drove the visit, regardless of which method
-        # ended up strongest for the lead's own bucket.
+        # ended up strongest for the lead's own bucket. It uses the full lead value: any lead that
+        # reaches top_answers has a citation_linked link on its session, so its strongest method is
+        # direct or citation_linked (never assisted) -- so `credit == value` for these leads anyway.
         if lead.session_id is not None and lead.session_id in prompt_by_session:
             prompt_id = prompt_by_session[lead.session_id]
             leads_by_prompt[prompt_id] = leads_by_prompt.get(prompt_id, 0) + 1

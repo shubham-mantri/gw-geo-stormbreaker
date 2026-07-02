@@ -15,7 +15,10 @@ import type { OverviewTrendPoint } from "@/lib/types";
 import { formatPct } from "@/lib/utils";
 
 /**
- * Share-of-Voice trend: you vs your top competitor, over the selected range.
+ * Share-of-Voice trend: you vs. all competitors combined, over the selected range.
+ *
+ * The `competitor` series is the backend's (1 − share_of_voice) — the rest of the market as a
+ * whole, NOT any single named rival (PRD §13) — so the default series label reflects that.
  *
  * Two categorical series (identity, not magnitude) → validated CVD-safe pair
  * (blue `You` / orange competitor, worst-adjacent ΔE ≈ 97), a legend is always
@@ -39,14 +42,14 @@ function formatDate(value: string): string {
 
 export type SoVTrendProps = {
   data: OverviewTrendPoint[];
-  /** Label for the competitor series (defaults to a generic label). */
+  /** Label for the combined-competitor series (defaults to the honest all-competitors label). */
   competitorLabel?: string;
   height?: number;
 };
 
 export function SoVTrend({
   data,
-  competitorLabel = "Top competitor",
+  competitorLabel = "All competitors (combined)",
   height = 260,
 }: SoVTrendProps) {
   if (!data || data.length === 0) {

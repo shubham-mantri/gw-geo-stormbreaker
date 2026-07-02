@@ -29,6 +29,32 @@ def test_rbac_ordering():
     assert not auth.role_at_least("viewer", "editor")
 
 
+def test_role_at_least_unknown_role_denies_without_raising():
+    # review fix #5: an unknown/malformed role must deny cleanly (-> 403), never raise (-> 500).
+    assert auth.role_at_least("banana", "viewer") is False
+    assert auth.role_at_least("admin", "banana") is False
+
+
+def test_tokens_carry_type_claim():
+    # review fix #2: access/refresh tokens are stamped with a distinguishing `type` claim.
+    import jwt
+
+    tp = auth.issue_tokens(user_id="u1", tenant_id="t1", role="editor", secret="k")
+    assert jwt.decode(tp.access_token, "k", algorithms=["HS256"])["type"] == "access"
+    assert jwt.decode(tp.refresh_token, "k", algorithms=["HS256"])["type"] == "refresh"
+
+
+def test_decode_token_rejects_wrong_token_type():
+    # review fix #2: a refresh token must not be accepted where an access token is required.
+    tp = auth.issue_tokens(user_id="u1", tenant_id="t1", role="viewer", secret="k")
+    with pytest.raises(auth.AuthError):
+        auth.decode_token(tp.refresh_token, secret="k")  # default expected_type="access"
+    with pytest.raises(auth.AuthError):
+        auth.decode_token(tp.access_token, secret="k", expected_type="refresh")
+    # the matching type decodes cleanly
+    assert auth.decode_token(tp.refresh_token, secret="k", expected_type="refresh").user_id == "u1"
+
+
 def _seeded_session() -> SASession:
     """A hermetic in-memory SQLite session seeded with one `AppUser` + `Membership`."""
     engine = create_engine("sqlite://")

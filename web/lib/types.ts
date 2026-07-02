@@ -36,7 +36,11 @@ export type EngineRow = {
   ci: [number, number];
   cited: number;
   avg_position: number | null;
-  sentiment: string;
+  /**
+   * Raw sentiment score in −1..1 (the backend never buckets it into a label; the ui-spec §6
+   * schema pins it to `number`). `EngineTable` maps this score to an emoji by threshold.
+   */
+  sentiment: number;
   n_samples: number;
   trend: EngineTrendPoint[];
 };
@@ -49,9 +53,10 @@ export type EngineRow = {
 export type Prompt = {
   id: string;
   text: string;
-  intent_cluster: string;
+  // Backend allows null for both (ui-spec §6): a prompt need not be clustered or persona-tagged.
+  intent_cluster: string | null;
   geo: string;
-  persona: string;
+  persona: string | null;
 };
 
 /**

@@ -32,4 +32,30 @@ describe("OverviewPage", () => {
     const link = await screen.findByRole("link", { name: /onboarding|set up|get started/i });
     expect(link).toHaveAttribute("href", "/onboarding");
   });
+
+  it("labels the SoV competitor series as all competitors combined, not a single name", async () => {
+    // PRD §13: trend[].competitor is (1 − SoV) = ALL competitors combined, so the label must not
+    // be pinned to competitors[0] ("Beta").
+    mockApi({
+      brands: [
+        { id: "b1", name: "Acme", domain: "acme.com", competitors: ["Beta", "Gamma"] },
+      ],
+      overview: {
+        sov: 0.2,
+        mention_rate: 0.3,
+        pipeline: 1000,
+        leads: 5,
+        // Empty trend keeps the SoV chart in its no-data state (recharts' ResponsiveContainer
+        // needs a ResizeObserver, absent in jsdom); the card title we assert on renders regardless.
+        trend: [],
+      },
+    });
+    renderWithClient(<OverviewPage />);
+
+    expect(
+      await screen.findByText(/you vs\.? all competitors/i),
+    ).toBeInTheDocument();
+    // the single competitor's name is never used as the series/title label
+    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+  });
 });

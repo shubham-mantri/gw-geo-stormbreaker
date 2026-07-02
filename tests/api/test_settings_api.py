@@ -39,6 +39,16 @@ def test_snippet_contains_writekey(app_client: TestClient, admin_token: str) -> 
     assert "gwgeo.js" in snip and "data-key=" in snip
 
 
+def test_snippet_requires_editor(app_client: TestClient, viewer_token: str) -> None:
+    # review fix #4: a write-key is a credential, so minting one requires role >= editor (a viewer
+    # -> 403), consistent with the sibling write endpoints.
+    r = app_client.get(
+        "/lead-capture/snippet?brand_id=b1",
+        headers={"Authorization": f"Bearer {viewer_token}"},
+    )
+    assert r.status_code == 403
+
+
 def test_unknown_integration_kind_422(app_client: TestClient, admin_token: str) -> None:
     r = app_client.post(
         "/integrations/bogus",

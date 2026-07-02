@@ -64,12 +64,17 @@ def verify_password(pw: str, hashed: str) -> bool:
         return False
 
 
-def _encode(*, user_id: str, tenant_id: str, role: str, secret: str, ttl_s: int) -> str:
+def _encode(
+    *, user_id: str, tenant_id: str, role: str, token_type: str, secret: str, ttl_s: int
+) -> str:
     now = int(time.time())
     payload = {
         "sub": user_id,
         "tenant_id": tenant_id,
         "role": role,
+        # `type` distinguishes access from refresh tokens so a refresh token can't be replayed as
+        # an access token on a data route (and vice-versa) -- verified in `decode_token`.
+        "type": token_type,
         "iat": now,
         "exp": now + ttl_s,
     }
@@ -85,28 +90,39 @@ def issue_tokens(
     access_ttl_s: int = 900,
     refresh_ttl_s: int = 1_209_600,
 ) -> TokenPair:
-    """Issue an access+refresh JWT pair (HS256), both carrying `tenant_id` + `role`."""
+    """Issue an access+refresh JWT pair (HS256), both carrying `tenant_id` + `role` and each stamped
+    with a `type` claim (`"access"` / `"refresh"`) so the two are not interchangeable."""
     access_token = _encode(
-        user_id=user_id, tenant_id=tenant_id, role=role, secret=secret, ttl_s=access_ttl_s
+        user_id=user_id, tenant_id=tenant_id, role=role, token_type="access",
+        secret=secret, ttl_s=access_ttl_s,
     )
     refresh_token = _encode(
-        user_id=user_id, tenant_id=tenant_id, role=role, secret=secret, ttl_s=refresh_ttl_s
+        user_id=user_id, tenant_id=tenant_id, role=role, token_type="refresh",
+        secret=secret, ttl_s=refresh_ttl_s,
     )
     return TokenPair(
         access_token=access_token, refresh_token=refresh_token, role=role, tenant_id=tenant_id
     )
 
 
-def decode_token(token: str, *, secret: str) -> Principal:
+def decode_token(token: str, *, secret: str, expected_type: str = "access") -> Principal:
     """Decode and verify `token`, returning its `Principal`.
 
+    `expected_type` pins which kind of token is acceptable: data routes decode with the default
+    `"access"`, and `/auth/refresh` decodes with `"refresh"`. A token whose `type` claim does not
+    match (or is absent) is rejected -- so an access token cannot be exchanged at `/auth/refresh`,
+    nor a refresh token replayed against the authed API.
+
     Raises:
-        AuthError: `token` is malformed, tampered with, expired, or missing a required claim.
+        AuthError: `token` is malformed, tampered with, expired, of the wrong `type`, or missing a
+            required claim.
     """
     try:
         payload = jwt.decode(token, secret, algorithms=[_JWT_ALGORITHM])
     except jwt.PyJWTError as exc:
         raise AuthError("invalid or expired token") from exc
+    if payload.get("type") != expected_type:
+        raise AuthError(f"expected a {expected_type} token")
     try:
         return Principal(
             user_id=payload["sub"], tenant_id=payload["tenant_id"], role=payload["role"]
@@ -116,8 +132,15 @@ def decode_token(token: str, *, secret: str) -> Principal:
 
 
 def role_at_least(role: str, minimum: str) -> bool:
-    """Whether `role` has at least `minimum`'s privilege, per the `ROLES` ordering."""
-    return ROLES.index(role) >= ROLES.index(minimum)
+    """Whether `role` has at least `minimum`'s privilege, per the `ROLES` ordering.
+
+    An unknown/malformed `role` (or `minimum`) is not in `ROLES`; rather than raising (which would
+    surface as a 500 on a request path), this denies cleanly by returning `False` -> a 403.
+    """
+    try:
+        return ROLES.index(role) >= ROLES.index(minimum)
+    except ValueError:
+        return False
 
 
 def authenticate(

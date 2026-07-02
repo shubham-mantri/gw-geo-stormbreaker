@@ -246,3 +246,15 @@ SNIPPET_SCHEMA: dict[str, Any] = {
     "required": ["snippet"],
     "properties": {"snippet": {"type": "string", "minLength": 1}},
 }
+
+
+# POST /integrations/{kind} -> {status}
+# The one M2 *write* whose response the dashboard consumes. Only the response body is pinned here;
+# NOTE(M3): the request-body schema ({config: {...}}) and a generated types<->schema codegen path
+# (so web/lib/types.ts and these dicts can't silently drift) are deferred to M3.
+INTEGRATION_STATUS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["status"],
+    "properties": {"status": {"type": "string", "minLength": 1}},
+}

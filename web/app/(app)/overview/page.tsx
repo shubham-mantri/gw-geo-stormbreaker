@@ -150,7 +150,9 @@ export default function OverviewPage() {
   if (overviewQuery.isLoading || !overviewQuery.data) return <OverviewSkeleton />;
 
   const o = overviewQuery.data;
-  const competitorLabel = activeBrand?.competitors?.[0] ?? "Top competitor";
+  // The backend's trend[].competitor is (1 − share_of_voice): ALL competitors combined, not any
+  // single named rival. Label it honestly (PRD §13) rather than pinning it to competitors[0].
+  const competitorLabel = "All competitors (combined)";
 
   return (
     <div className="space-y-6">
@@ -171,7 +173,7 @@ export default function OverviewPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            Share-of-Voice trend — you vs {competitorLabel}
+            Share-of-Voice trend — you vs. all competitors
           </CardTitle>
         </CardHeader>
         <CardContent>

@@ -15,7 +15,7 @@ describe("VisibilityPage", () => {
             ci: [0.36, 0.48],
             cited: 0.31,
             avg_position: 2.4,
-            sentiment: "positive",
+            sentiment: 0.6,
             n_samples: 120,
             trend: [],
           },
@@ -29,6 +29,30 @@ describe("VisibilityPage", () => {
     expect(await screen.findByText(/n=120/)).toBeInTheDocument(); // ConfidenceBadge
   });
 
+  it("maps the numeric sentiment score to an emoji (not the '•' fallback)", async () => {
+    mockApi({
+      visibility: {
+        engines: [
+          {
+            engine: "chatgpt",
+            mention_rate: 0.42,
+            ci: [0.36, 0.48],
+            cited: 0.31,
+            avg_position: 2.4,
+            sentiment: 0.6, // > 0.15 → positive
+            n_samples: 120,
+            trend: [],
+          },
+        ],
+        prompts: [],
+      },
+    });
+    renderWithClient(<VisibilityPage />);
+
+    // The accessible label is derived from the numeric score by threshold.
+    expect(await screen.findByText("Positive")).toBeInTheDocument();
+  });
+
   it("expands a prompt row to reveal sampled-answer counts", async () => {
     mockApi({
       visibility: {
@@ -39,7 +63,7 @@ describe("VisibilityPage", () => {
             ci: [0.36, 0.48],
             cited: 0.31,
             avg_position: 2.4,
-            sentiment: "positive",
+            sentiment: 0.6,
             n_samples: 120,
             trend: [],
           },
