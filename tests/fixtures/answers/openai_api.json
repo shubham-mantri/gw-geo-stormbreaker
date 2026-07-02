@@ -1,0 +1,60 @@
+{
+  "id": "resp_6802f4d5134c8190a09037e356b0e3d7",
+  "object": "response",
+  "created_at": 1751500800,
+  "status": "completed",
+  "model": "gpt-4.1-2025-04-14",
+  "output": [
+    {
+      "type": "web_search_call",
+      "id": "ws_6802f4d5f4c88190b06f4c1a9e37c2a7",
+      "status": "completed"
+    },
+    {
+      "type": "message",
+      "id": "msg_6802f4d838c88190a1c8b0eb0a5a4d50",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "For small and midsize businesses, HubSpot CRM and Zoho CRM are the two most frequently recommended options. HubSpot's free tier and marketing integrations make it a popular starting point, as reflected in G2's CRM rankings. Zoho CRM stands out for its price-to-feature ratio, per Capterra's pricing comparison. Community members on Reddit's r/smallbusiness also point to Pipedrive as a lightweight, sales-first alternative.",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 205,
+              "end_index": 222,
+              "url": "https://www.g2.com/categories/crm",
+              "title": "Best CRM Software Reviews 2026 | G2"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 280,
+              "end_index": 309,
+              "url": "https://www.capterra.com/customer-relationship-management-software/",
+              "title": "CRM Software Pricing Comparison - Capterra"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 332,
+              "end_index": 356,
+              "url": "https://www.reddit.com/r/smallbusiness/comments/1a2b3c/best_crm_alternatives/",
+              "title": "Best CRM alternatives for small teams? : r/smallbusiness"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 543,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 187,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 730
+  }
+}
