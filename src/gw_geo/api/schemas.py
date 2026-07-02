@@ -38,3 +38,59 @@ class BrandOut(BaseModel):
     name: str
     domain: str
     competitors: list[str]
+
+
+class VisibilityTrendPoint(BaseModel):
+    """One point of an engine's ``trend`` series in ``GET /brands/{id}/visibility`` (ui-spec §3.2)."""
+
+    date: str
+    mention_rate: float
+
+
+class VisibilityEngineOut(BaseModel):
+    """One per-engine row of ``GET /brands/{id}/visibility`` (ui-spec §3.2, verbatim).
+
+    ``ci`` is ``[low, high]`` and, with ``n_samples``, is required on every row (TRD §3:
+    non-determinism must stay visible). ``cited`` is the citation rate; ``sentiment`` is the raw
+    ``[-1, 1]`` sentiment score (this codebase never buckets sentiment into a label -- the ``web/``
+    dashboard maps the score to an emoji/label itself).
+    """
+
+    engine: str
+    mention_rate: float
+    ci: tuple[float, float]
+    cited: float
+    avg_position: float | None
+    sentiment: float
+    n_samples: int
+    trend: list[VisibilityTrendPoint]
+
+
+class VisibilityPromptOut(BaseModel):
+    """One row of ``GET /brands/{id}/visibility``'s ``prompts`` table (ui-spec §3.2, verbatim)."""
+
+    prompt_id: str
+    text: str
+    mention_rate: float
+    avg_position: float | None
+    n_samples: int
+
+
+class VisibilityOut(BaseModel):
+    """``GET /brands/{id}/visibility`` response (ui-spec §3.2/§6, verbatim)."""
+
+    engines: list[VisibilityEngineOut]
+    prompts: list[VisibilityPromptOut]
+
+
+class SourceOut(BaseModel):
+    """One row of ``GET /brands/{id}/sources`` (ui-spec §3.3/§6, verbatim).
+
+    ``competitor_pcts`` is currently always ``{}`` -- see ``routers/visibility.py`` for why the
+    M1 ``citation`` table can't yet attribute a citation to "you" vs a named competitor.
+    """
+
+    domain: str
+    source_type: str
+    you_pct: float
+    competitor_pcts: dict[str, float]

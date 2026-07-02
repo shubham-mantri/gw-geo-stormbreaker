@@ -1,10 +1,10 @@
 """FastAPI app factory (m2-design.md §3): the tenant-scoped REST skin over the measurement /
 attribution core.
 
-``create_app()`` mounts the auth + lead-capture routers, wires the tenancy/RBAC dependencies,
-configures CORS for ``web/``, and maps domain errors to HTTP status codes. Building the app performs
-no I/O -- the DB engine is created lazily and opens no connection until first use -- so
-``handlers/api.py`` can build it at import time.
+``create_app()`` mounts the auth + lead-capture + visibility/sources routers, wires the
+tenancy/RBAC dependencies, configures CORS for ``web/``, and maps domain errors to HTTP status
+codes. Building the app performs no I/O -- the DB engine is created lazily and opens no connection
+until first use -- so ``handlers/api.py`` can build it at import time.
 
 Error mapping (m2-design.md §3, ui-spec.md §5): ``AuthError -> 401``, ``PermissionError -> 403``,
 ``LookupError -> 404`` (e.g. an unknown brand for the tenant -- a 404, never a 403 tenant leak).
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session as SASession
 from gw_geo.api import auth
 from gw_geo.api.auth import AuthError, TokenPair
 from gw_geo.api.deps import get_db_session, get_settings_dep, require_role, scoped_session
-from gw_geo.api.routers import leadcapture
+from gw_geo.api.routers import leadcapture, visibility
 from gw_geo.api.schemas import BrandCreate, BrandOut, LoginRequest, RefreshRequest
 from gw_geo.common.config import Settings, get_settings
 from gw_geo.common.db import Brand, TenantScopedSession
@@ -150,6 +150,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(_auth_router)
     app.include_router(_core_router)
     app.include_router(leadcapture.router)
+    app.include_router(visibility.router)
 
     # The public leadcapture router ships a deliberately-unimplemented get_db_session; point it at
     # the real (unscoped) session provider so the beacon can write. Its per-brand write-key -- not a
