@@ -26,7 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from gw_geo.api import auth
 from gw_geo.api.auth import AuthError, TokenPair
 from gw_geo.api.deps import get_db_session, get_settings_dep
-from gw_geo.api.routers import brands, leadcapture, pipeline, visibility
+from gw_geo.api.routers import brands, content, leadcapture, pipeline, visibility
 from gw_geo.api.routers import settings as settings_router
 from gw_geo.api.schemas import LoginRequest, RefreshRequest
 from gw_geo.common.config import Settings, get_settings
@@ -164,6 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(_auth_router)
     app.include_router(_core_router)
     app.include_router(brands.router)
+    app.include_router(content.router)
     app.include_router(leadcapture.router)
     app.include_router(pipeline.router)
     app.include_router(visibility.router)

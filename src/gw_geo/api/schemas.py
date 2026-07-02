@@ -15,6 +15,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from gw_geo.common.models import ContentDraft
+
 
 class LoginRequest(BaseModel):
     """``POST /auth/login`` body."""
@@ -229,3 +231,59 @@ class AlertOut(BaseModel):
     severity: Literal["red", "green", "yellow"]
     message: str
     ts: datetime
+
+
+# --- Content engine (M3-T22, ui-spec §3.5/§6) ------------------------------------------------
+
+
+class GuardrailBadges(BaseModel):
+    """The two guardrail badges the Content screen renders (ui-spec §3.5/§6): the claim-verification
+    and originality verdicts. Exactly these two keys, matching ui-spec §6's
+    ``guardrails:{claims_ok,originality_ok}`` -- the full :class:`GuardrailReport` (scores,
+    brand-voice, the unverified-claim list) stays server-side and is not exposed to the client.
+    """
+
+    claims_ok: bool
+    originality_ok: bool
+
+
+class ContentGenerateRequest(BaseModel):
+    """``POST /content/generate`` body (ui-spec §3.5/§6): the target search prompt plus the brand to
+    scope the draft to. ``tenant_id`` is **never** in the body -- it is derived from the bearer token
+    (server-enforced scope, ui-spec §5)."""
+
+    brand_id: str
+    prompt_text: str
+    target_engine: str | None = None
+
+
+class ContentGenerateResponse(BaseModel):
+    """``POST /content/generate`` response (ui-spec §6, verbatim): the new content id, the editable
+    draft, and the two guardrail badges."""
+
+    content_id: str
+    draft: ContentDraft
+    guardrails: GuardrailBadges
+
+
+class ContentApproveResponse(BaseModel):
+    """``POST /content/{id}/approve`` response (ui-spec §6, verbatim): the draft's resulting
+    status (e.g. ``"approved"``)."""
+
+    status: str
+
+
+class ContentPublishRequest(BaseModel):
+    """``POST /content/{id}/publish`` body: which publish connector to target. Defaults to the
+    always-available product-hosted subdomain (``hosted``) so a brand with no CMS of its own can
+    still publish."""
+
+    connector: str = "hosted"
+
+
+class ContentPublishResponse(BaseModel):
+    """``POST /content/{id}/publish`` response (ui-spec §6, verbatim): the resulting status plus the
+    live published URL."""
+
+    status: str
+    published_url: str
