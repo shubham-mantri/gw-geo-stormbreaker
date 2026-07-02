@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<!--
+  Sanitized, hand-authored fixture approximating a Google Search results page that contains an
+  AI Overview for the query "best crm for smb?". Class/attribute names mimic (but do not copy
+  verbatim) real Google SERP hooks so the adapter's resilient, priority-ordered selector list has
+  something realistic to exercise. Per m1-design.md S10, this DOM is expected to drift over time;
+  see AIOverviewsAdapter's fallback chain in src/gw_geo/measurement/probe/ai_overviews.py.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>best crm for smb - Google Search</title>
+  </head>
+  <body>
+    <div id="search">
+      <div id="rso">
+        <div data-attrid="AIOverview" class="LT6Yjf">
+          <div jsname="aioAnswer" class="AIOverview-answer">
+            <div class="hgKElc">
+              <span>
+                For small and medium businesses, the top-rated CRM platforms are
+                <a href="https://www.hubspot.com/products/crm">HubSpot</a> for its generous free
+                tier and ease of setup, Salesforce for scalability into the enterprise, and Zoho
+                CRM for affordability. Most SMB buyers should start with a free trial of two or
+                three options before committing, since integrations with existing email and
+                billing tools often matter more than the feature checklist.
+              </span>
+            </div>
+          </div>
+          <div jsname="aioSources" class="AIOverview-sources">
+            <ol class="source-list">
+              <li class="source-item">
+                <a href="https://www.hubspot.com/products/crm" data-ved="xyz1">HubSpot CRM</a>
+              </li>
+              <li class="source-item">
+                <a href="https://www.g2.com/categories/crm" data-ved="xyz2">Best CRM Software - G2</a>
+              </li>
+              <li class="source-item">
+                <a href="https://www.salesforce.com/crm/" data-ved="xyz3">Salesforce CRM</a>
+              </li>
+              <li class="source-item">
+                <a href="/url?q=https://www.zoho.com/crm/pricing&amp;sa=U&amp;ved=abc123">
+                  Zoho CRM Pricing
+                </a>
+              </li>
+              <li class="source-item">
+                <a href="#" data-ved="xyz4">Show more</a>
+              </li>
+            </ol>
+          </div>
+        </div>
+        <div class="g">
+          <a href="https://example.com/other-organic-result">
+            An unrelated organic result outside the AI Overview (must not be treated as a citation)
+          </a>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

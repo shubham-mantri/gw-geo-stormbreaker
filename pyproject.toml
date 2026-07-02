@@ -18,6 +18,10 @@ dependencies = [
   # browser (Playwright is imported lazily inside gw_geo.capture.browser methods, never at
   # module load) and does not require binaries to be installed.
   "playwright>=1.40",
+  # DOM parser for the Playwright-surface adapters (M1-T11+): consumer-surface HTML is parsed
+  # into `answer_text`/`cited_urls` via BeautifulSoup. `>=4.13` ships inline type hints
+  # (py.typed), so no separate stub package is needed for mypy.
+  "beautifulsoup4>=4.13",
 ]
 
 [project.optional-dependencies]
