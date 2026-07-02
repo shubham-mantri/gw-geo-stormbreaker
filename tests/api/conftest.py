@@ -127,6 +127,25 @@ def t2_token(make_token: Callable[..., str]) -> str:
 
 
 @pytest.fixture
+def seeded_brands(engine: Engine) -> None:
+    """Seed tenant ``t1``'s brand ``b1`` and tenant ``t2``'s brand ``b2`` -- ownership only, no
+    snapshot/citation/lead data -- for ``GET``/``POST /brands`` tenant-scoping tests (T13). Uses the
+    same ids/tenants as ``seeded_snapshots`` so a test can seed just brand ownership without pulling
+    in unrelated visibility data.
+    """
+    with SASession(engine) as session:
+        session.add(Tenant(id="t1", name="Acme", sampling_budget_daily=100.0))
+        session.add(
+            Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com", competitors=["Beta"])
+        )
+        session.add(Tenant(id="t2", name="Globex", sampling_budget_daily=100.0))
+        session.add(
+            Brand(id="b2", tenant_id="t2", name="Globex", domain="globex.com", competitors=[])
+        )
+        session.commit()
+
+
+@pytest.fixture
 def seeded_snapshots(engine: Engine) -> None:
     """Seed tenant ``t1``'s brand ``b1`` with two dates' worth of ``VisibilitySnapshot`` rows for
     engine ``perplexity``, each carrying its own ``ci_low``/``ci_high`` + ``n_samples`` -- the
