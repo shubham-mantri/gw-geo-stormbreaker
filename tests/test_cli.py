@@ -24,3 +24,18 @@ def test_cli_parses_and_invokes():
     kwargs = run.await_args.kwargs
     assert kwargs["brand_id"] == "b1" and kwargs["n_samples"] == 4
     assert kwargs["engines"] == ["perplexity"]
+
+
+def test_cli_accepts_new_m1_engines():
+    """`--engines` accepts the M1 engine names (e.g. gemini) and threads them to run_measurement."""
+    with (
+        patch(
+            "gw_geo.cli.build_runtime",
+            return_value={"extractor": object(), "archive": object(), "engines": ["gemini"]},
+        ),
+        patch("gw_geo.cli.run_measurement", new=AsyncMock(return_value=[])) as run,
+    ):
+        rc = cli.main(["measure", "--brand", "b1", "--engines", "gemini,chatgpt", "--n", "2"])
+    assert rc == 0
+    kwargs = run.await_args.kwargs
+    assert kwargs["engines"] == ["gemini", "chatgpt"]

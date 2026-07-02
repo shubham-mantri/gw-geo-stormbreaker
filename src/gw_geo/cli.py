@@ -37,7 +37,11 @@ def _build_parser() -> argparse.ArgumentParser:
     measure.add_argument(
         "--engines",
         required=True,
-        help="Comma-separated engine names to probe, e.g. perplexity,openai",
+        help=(
+            "Comma-separated engine names to probe, e.g. perplexity,openai,gemini,claude,copilot,"
+            "deepseek,google_ai_overviews,chatgpt,grok (an engine with no registered adapter is "
+            "skipped; see build_runtime for which are registered under the current config)"
+        ),
     )
     measure.add_argument(
         "--geo",
