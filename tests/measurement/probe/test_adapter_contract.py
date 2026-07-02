@@ -88,4 +88,6 @@ async def test_adapter_contract(name, factory):
     assert isinstance(r, ProbeResult)
     assert r.engine == a.name and r.answer_text
     assert all(u.startswith("http") for u in r.cited_urls)
+    if a.supports_citations:
+        assert r.cited_urls, f"{a.name} claims citations but returned none"
     assert r.latency_ms >= 0 and r.cost_usd >= 0
