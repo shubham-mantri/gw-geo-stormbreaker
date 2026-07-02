@@ -12,6 +12,12 @@ dependencies = [
   "httpx>=0.27",
   "scipy>=1.13",
   "boto3>=1.34",
+  # Async capture fleet (M1-T07+). The `playwright` package is a normal dependency, but the
+  # browser binaries it drives are NOT: run `playwright install` (or `playwright install
+  # chromium`) as a one-time local/deploy setup step. The default test suite never launches a
+  # browser (Playwright is imported lazily inside gw_geo.capture.browser methods, never at
+  # module load) and does not require binaries to be installed.
+  "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
