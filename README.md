@@ -59,8 +59,12 @@ See [`docs/architecture.md`](docs/architecture.md) for the data-flow diagram.
 ✅ **M0 implemented** — the measurement pipeline (models, DB + tenant scoping, config, cost
 governor, engine-adapter registry, Perplexity + OpenAI adapters, parse, Wilson-CI aggregation,
 runner, CLI + Lambda handler) with a TDD test suite. See git history (`merge(m0): T01…T14`).
-📐 **M1 designed** ([`docs/m1-design.md`](docs/m1-design.md)) — ≥8 engines + capture fleet + drift + feed.
-🔜 **Next:** M1 task breakdown → implement; then M2 dashboard ([`docs/ui-spec.md`](docs/ui-spec.md)).
+
+📄 **M1–M4 fully planned** — design spec + TDD task breakdown for every milestone
+([`docs/tasks/`](docs/tasks/) — 93 task files total across M0–M4). Ready to hand to the orchestrator
+milestone by milestone.
+
+🔜 **Next:** implement **M1** (`docs/tasks/M1-README.md`), then M2 (dashboard goes live), M3, M4.
 
 ## Development
 

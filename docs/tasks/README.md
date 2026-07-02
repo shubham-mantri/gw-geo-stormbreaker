@@ -1,8 +1,25 @@
-# M0 Implementation Tasks — gw-geo-stormbreaker
+# Implementation Tasks — gw-geo-stormbreaker
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development` to
 > implement these task-by-task. Each task file is a self-contained unit of work for one subagent,
 > written TDD-first. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+## Milestone index (full plan)
+
+| Milestone | Design | Tasks | Status |
+|---|---|---|---|
+| **M0** Foundations / measurement | (PRD+TRD) | this file, `M0-T01…T14` (14) | ✅ implemented |
+| **M1** Measurement GA (≥8 engines, capture fleet, drift, feed) | [`../m1-design.md`](../m1-design.md) | [`M1-README.md`](M1-README.md), `M1-T01…T19` (19) | 📄 planned |
+| **M2** Attribution + API + dashboard live | [`../m2-design.md`](../m2-design.md) | [`M2-README.md`](M2-README.md), `M2-T01…T21` (21) | 📄 planned |
+| **M3** Ranking ML + on-site content engine | [`../m3-design.md`](../m3-design.md) | [`M3-README.md`](M3-README.md), `M3-T01…T22` (22) | 📄 planned |
+| **M4** Off-site seeding + self-adaptation + RaaS | [`../m4-design.md`](../m4-design.md) | [`M4-README.md`](M4-README.md), `M4-T01…T17` (17) | 📄 planned |
+
+Implement milestones in order (each is independently shippable). Within a milestone, follow its
+README's wave plan. The section below covers **M0** specifically.
+
+---
+
+## M0 — Foundations
 
 **Goal (M0):** a tested, runnable pipeline that turns a brand + seed topics into a persisted
 **visibility snapshot** across ≥2 AI engines, with confidence intervals, under a per-tenant cost
