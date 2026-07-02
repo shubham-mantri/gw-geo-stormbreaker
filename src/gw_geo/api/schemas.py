@@ -1,14 +1,15 @@
 """Request/response models for the API layer (m2-design.md §3).
 
 Response shapes for the read endpoints (overview / visibility / sources / pipeline / ...) are added
-by their owning router tasks (T13-T16). This module holds the auth request bodies plus the brand
-shapes used by the temporary skeleton ``/brands`` routes (superseded by T13). The token response
-reuses :class:`gw_geo.api.auth.TokenPair` directly (no duplicate model).
+by their owning router tasks (T13-T16). This module holds the auth request bodies, the brand
+create/list/overview shapes (``routers/brands.py``, T13), and the visibility/sources shapes
+(``routers/visibility.py``, T14). The token response reuses :class:`gw_geo.api.auth.TokenPair`
+directly (no duplicate model).
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
@@ -25,10 +26,17 @@ class RefreshRequest(BaseModel):
 
 
 class BrandCreate(BaseModel):
-    """``POST /brands`` body (ui-spec.md §6)."""
+    """``POST /brands`` body (ui-spec.md §6, verbatim).
+
+    ``competitors``/``seed_topics`` are both optional. ``seed_topics`` seeds the onboarding flow's
+    prompt-discovery kick-off (``measurement.discover.build_prompt_set``, M0-T11) -- see
+    ``routers/brands.py`` for why that kick-off is stubbed (not invoked) here.
+    """
 
     name: str
     domain: str
+    competitors: list[str] = Field(default_factory=list)
+    seed_topics: list[str] = Field(default_factory=list)
 
 
 class BrandOut(BaseModel):
@@ -38,6 +46,32 @@ class BrandOut(BaseModel):
     name: str
     domain: str
     competitors: list[str]
+
+
+class BrandCreated(BaseModel):
+    """``POST /brands`` response (ui-spec.md §6, verbatim): the new brand's id."""
+
+    id: str
+
+
+class OverviewTrendPoint(BaseModel):
+    """One point of the ``you`` vs ``competitor`` share-of-voice series in
+    ``GET /brands/{id}/overview`` (ui-spec §3.1/§6, verbatim)."""
+
+    date: str
+    you: float
+    competitor: float
+
+
+class OverviewOut(BaseModel):
+    """``GET /brands/{id}/overview`` response (ui-spec §3.1/§6, verbatim) -- the landing screen's
+    KPI tiles plus the share-of-voice trend."""
+
+    sov: float
+    mention_rate: float
+    pipeline: float
+    leads: int
+    trend: list[OverviewTrendPoint]
 
 
 class VisibilityTrendPoint(BaseModel):
