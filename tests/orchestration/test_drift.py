@@ -44,6 +44,30 @@ class SteadyAdapter:
         return ProbeResult(engine="gemini", answer_text="Foo is great", cited_urls=[])
 
 
+class RaisingAdapter:
+    """Every probe raises -- simulates a total engine outage (an HTTP error / bad payload)."""
+
+    name = "gemini"
+    supports_citations = True
+
+    async def probe(
+        self, prompt: str, *, geo: str = "us", persona: str | None = None
+    ) -> ProbeResult:
+        raise RuntimeError("simulated engine outage")
+
+
+class HealthyAdapter:
+    """A second, healthy engine (name != the raising one) that always mentions the brand."""
+
+    name = "openai"
+    supports_citations = True
+
+    async def probe(
+        self, prompt: str, *, geo: str = "us", persona: str | None = None
+    ) -> ProbeResult:
+        return ProbeResult(engine="openai", answer_text="Foo is great", cited_urls=[])
+
+
 class NoMentionExtractor:
     def extract(self, answer_text: str, brand: Any) -> dict[str, Any]:
         return {
@@ -80,6 +104,17 @@ def _one_canary() -> list[drift.Canary]:
         drift.Canary(
             canary_id="c1", engine="gemini", prompt="best crm?", brand="Foo", baseline_rate=0.9
         )
+    ]
+
+
+def _two_canaries() -> list[drift.Canary]:
+    return [
+        drift.Canary(
+            canary_id="c1", engine="gemini", prompt="best crm?", brand="Foo", baseline_rate=0.9
+        ),
+        drift.Canary(
+            canary_id="c2", engine="openai", prompt="best crm?", brand="Foo", baseline_rate=0.9
+        ),
     ]
 
 
@@ -123,3 +158,45 @@ async def test_non_breach_writes_no_event(monkeypatch) -> None:
     assert results[0].observed_rate >= results[0].baseline_rate
     rows = s.execute(select(DriftEvent)).scalars().all()
     assert rows == []
+
+
+async def test_single_probe_failure_breaches_without_crashing_other_canaries(monkeypatch) -> None:
+    """F1: one canary's engine is fully down (every probe raises). It must still yield a
+    `DriftResult` (breached, `observed_rate == 0.0`, `DriftEvent` written) WITHOUT propagating the
+    exception or discarding the other, healthy canary's result -- an engine outage is the strongest
+    drift signal, so it produces a breach, not a Lambda crash.
+    """
+    base.clear_registry()
+    base.register(RaisingAdapter())  # gemini: every probe raises
+    base.register(HealthyAdapter())  # openai: healthy, always mentions the brand
+    monkeypatch.setattr(drift, "load_canaries", lambda session=None: _two_canaries())
+
+    s = _session()
+    # No exception must propagate out of this call.
+    results = await drift.run_drift_canary(
+        s,
+        engines=["gemini", "openai"],
+        threshold=0.2,
+        extractor=MentionExtractor(),
+        archive=MemArchive(),
+        date="2026-07-02",
+    )
+
+    # A DriftResult for EVERY canary -- the failing engine did not abort the run.
+    by_engine = {r.engine: r for r in results}
+    assert set(by_engine) == {"gemini", "openai"}
+
+    # The dead engine -> observed_rate 0.0 -> breach.
+    assert by_engine["gemini"].observed_rate == 0.0
+    assert by_engine["gemini"].breached is True
+
+    # The healthy engine still aggregated its successful probes -> no breach.
+    assert by_engine["openai"].observed_rate >= by_engine["openai"].baseline_rate
+    assert by_engine["openai"].breached is False
+
+    # Exactly one DriftEvent row: the failing engine, flagged for retrain.
+    rows = s.execute(select(DriftEvent)).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].engine == "gemini"
+    assert rows[0].observed_rate == 0.0
+    assert rows[0].retrain_flag is True
