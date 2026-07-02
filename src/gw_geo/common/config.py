@@ -32,6 +32,25 @@ class Settings(BaseSettings):
     drift_threshold: float = 0.2
     drift_sns_topic_arn: str = ""
 
+    # M2 JWT / auth
+    jwt_secret: str = "dev-insecure-change-me"
+    jwt_access_ttl_s: int = 900
+    jwt_refresh_ttl_s: int = 1209600          # 14d
+
+    # M2 API
+    cors_allow_origins: list[str] = ["http://localhost:3000"]
+
+    # M2 integrations (secrets via env/SSM; blank default = "not configured")
+    hubspot_client_id: str = ""
+    hubspot_client_secret: str = ""
+    salesforce_client_id: str = ""
+    salesforce_client_secret: str = ""
+    ga4_property_id: str = ""
+    ga4_credentials_ref: str = ""             # SSM/secret ref, never inline creds
+
+    # M2 lead-capture pixel
+    pixel_write_key_salt: str = "dev-salt"
+
 
 @lru_cache
 def get_settings() -> "Settings":
