@@ -14,7 +14,13 @@ provider:
     # DATABASE_URL, PINECONE_API_KEY, S3_BUCKET, etc. injected via SSM in M0
 
 # functions: defined per subsystem during M0 (probe workers, aggregator, attribution ingest, ...)
-functions: {}
+functions:
+  runMeasurement:
+    # Probe -> parse -> aggregate -> persist for one brand (TRD §11); same pipeline as
+    # `python -m gw_geo.cli measure`. Handler path mirrors the installed package's import path
+    # (pyproject.toml maps src/ -> the gw_geo package root); packaging (zipping src/gw_geo's
+    # contents to the deployment root) is a deployment concern tracked separately from M0.
+    handler: gw_geo.handlers.run_measurement.handler
 
 # plugins: serverless-python-requirements, etc. — added in M0
 plugins: []
