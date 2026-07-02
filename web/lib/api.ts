@@ -56,12 +56,19 @@ export type ApiClient = {
     domain: string;
     competitors?: string[];
   }): Promise<BrandCreated>;
+  /**
+   * Persist prompts for a brand. The backend exposes only a *singular* create
+   * (`POST /brands/{id}/prompts`, one `PromptCreate` -> `{id}`), so this maps the
+   * array to N sequential creates (array order preserved) and returns the created
+   * rows carrying their real backend ids. Callers pass the prompts to add.
+   */
   savePrompts(brandId: string, prompts: Prompt[]): Promise<Prompt[]>;
   connectIntegration(
     kind: IntegrationKind,
     config: Record<string, unknown>,
   ): Promise<IntegrationResult>;
-  leadCaptureSnippet(): Promise<SnippetResponse>;
+  /** `GET /lead-capture/snippet?brand_id=` — the brand_id query param is required by the backend. */
+  leadCaptureSnippet(brandId: string): Promise<SnippetResponse>;
 };
 
 /**
@@ -117,16 +124,32 @@ export function apiClient(
         method: "POST",
         body: JSON.stringify(input),
       }),
-    savePrompts: (brandId, prompts) =>
-      request<Prompt[]>(`${brandPath(brandId)}/prompts`, {
-        method: "POST",
-        body: JSON.stringify(prompts),
-      }),
+    savePrompts: async (brandId, prompts) => {
+      // Backend has only a singular create; issue one POST per prompt (sequential to keep the
+      // array's order = priority order) and return the created rows with their real ids.
+      const created: Prompt[] = [];
+      for (const p of prompts) {
+        const { id } = await request<BrandCreated>(`${brandPath(brandId)}/prompts`, {
+          method: "POST",
+          body: JSON.stringify({
+            text: p.text,
+            intent_cluster: p.intent_cluster,
+            geo: p.geo,
+            persona: p.persona,
+          }),
+        });
+        created.push({ ...p, id });
+      }
+      return created;
+    },
     connectIntegration: (kind, config) =>
       request<IntegrationResult>(`/integrations/${encodeURIComponent(kind)}`, {
         method: "POST",
         body: JSON.stringify(config),
       }),
-    leadCaptureSnippet: () => request<SnippetResponse>("/lead-capture/snippet"),
+    leadCaptureSnippet: (brandId) =>
+      request<SnippetResponse>(
+        `/lead-capture/snippet${queryString({ brand_id: brandId })}`,
+      ),
   };
 }

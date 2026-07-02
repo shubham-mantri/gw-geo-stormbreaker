@@ -30,9 +30,11 @@ export type PromptManagerProps = {
 
 /**
  * Seed-prompt manager (ui-spec §3.8): list, add, and prioritize (reorder) the prompt set sampled
- * across engines. Backed by `GET/POST /brands/{id}/prompts`; `savePrompts` takes the *whole* next
- * list (per `lib/api.ts`'s `ApiClient` contract), so add/reorder both persist by sending the full,
- * updated array — array order doubles as priority order.
+ * across engines. Backed by `GET/POST /brands/{id}/prompts`. The backend prompt API is
+ * append-only (a singular `POST` create — no bulk-replace or reorder endpoint), so **adding**
+ * persists via `savePrompts` (one create for the new prompt, merged into the list on success),
+ * while **reordering** is a client-side view concern only — array order still doubles as priority
+ * order, but is not persisted until a reorder endpoint lands (flagged in M2-T21's CONCERNS).
  */
 export function PromptManager({ brandId, role }: PromptManagerProps) {
   const canEdit = role !== null && CAN_EDIT_ROLES.includes(role);
@@ -45,9 +47,13 @@ export function PromptManager({ brandId, role }: PromptManagerProps) {
   });
 
   const saveMutation = useMutation({
-    mutationFn: (next: Prompt[]) => apiClient(getToken).savePrompts(brandId, next),
-    onSuccess: (saved) => {
-      queryClient.setQueryData(["prompts", brandId], saved);
+    mutationFn: (added: Prompt[]) => apiClient(getToken).savePrompts(brandId, added),
+    onSuccess: (created) => {
+      // Append the created rows (carrying their real backend ids) to the existing set.
+      queryClient.setQueryData<Prompt[]>(["prompts", brandId], (old) => [
+        ...(old ?? []),
+        ...created,
+      ]);
     },
   });
 
@@ -55,11 +61,14 @@ export function PromptManager({ brandId, role }: PromptManagerProps) {
 
   function onAdd() {
     if (!canEdit || text.trim() === "") return;
-    const next: Prompt[] = [
-      ...prompts,
-      { id: `tmp-${Date.now()}`, text: text.trim(), intent_cluster: "", geo: "us", persona: "" },
-    ];
-    saveMutation.mutate(next);
+    const newPrompt: Prompt = {
+      id: `tmp-${Date.now()}`,
+      text: text.trim(),
+      intent_cluster: "",
+      geo: "us",
+      persona: "",
+    };
+    saveMutation.mutate([newPrompt]);
     setText("");
   }
 
@@ -70,7 +79,8 @@ export function PromptManager({ brandId, role }: PromptManagerProps) {
     const next = [...prompts];
     const [moved] = next.splice(index, 1);
     next.splice(target, 0, moved);
-    saveMutation.mutate(next);
+    // Reorder is client-side only — the backend prompt API is append-only (see the doc comment).
+    queryClient.setQueryData<Prompt[]>(["prompts", brandId], next);
   }
 
   return (

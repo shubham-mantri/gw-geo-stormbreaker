@@ -5,6 +5,8 @@
 
 # next.js
 /.next/
+/.next-e2e-real/
+/.next-e2e-mock/
 /out/
 next-env.d.ts.bak
 
