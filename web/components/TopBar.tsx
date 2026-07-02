@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 
 import { apiClient } from "@/lib/api";
 import { getToken, logout } from "@/lib/auth";
+import { useFilters } from "@/lib/filters";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -40,6 +42,8 @@ const ENGINES = [
  */
 export function TopBar() {
   const router = useRouter();
+  const { brandId, range, engine, setBrandId, setRange, setEngine } =
+    useFilters();
 
   const { data: brands } = useQuery({
     queryKey: ["brands"],
@@ -48,6 +52,13 @@ export function TopBar() {
     retry: false,
   });
 
+  // Auto-select the first brand once loaded so screens have a brand to query.
+  useEffect(() => {
+    if (brandId === null && brands && brands.length > 0) {
+      setBrandId(brands[0].id);
+    }
+  }, [brandId, brands, setBrandId]);
+
   function onSignOut() {
     logout();
     router.replace("/login");
@@ -55,7 +66,7 @@ export function TopBar() {
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-background px-6">
-      <Select>
+      <Select value={brandId ?? undefined} onValueChange={setBrandId}>
         <SelectTrigger className="w-[200px]" aria-label="Brand">
           <SelectValue placeholder="Select brand" />
         </SelectTrigger>
@@ -68,27 +79,27 @@ export function TopBar() {
         </SelectContent>
       </Select>
 
-      <Select defaultValue="30d">
+      <Select value={range} onValueChange={setRange}>
         <SelectTrigger className="w-[160px]" aria-label="Date range">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {DATE_RANGES.map((range) => (
-            <SelectItem key={range.value} value={range.value}>
-              {range.label}
+          {DATE_RANGES.map((r) => (
+            <SelectItem key={r.value} value={r.value}>
+              {r.label}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
 
-      <Select defaultValue="all">
+      <Select value={engine} onValueChange={setEngine}>
         <SelectTrigger className="w-[190px]" aria-label="Engine filter">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {ENGINES.map((engine) => (
-            <SelectItem key={engine.value} value={engine.value}>
-              {engine.label}
+          {ENGINES.map((e) => (
+            <SelectItem key={e.value} value={e.value}>
+              {e.label}
             </SelectItem>
           ))}
         </SelectContent>
