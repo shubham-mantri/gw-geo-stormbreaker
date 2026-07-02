@@ -84,6 +84,23 @@ class Settings(BaseSettings):
     headless_publish_url: str = ""
     hosted_subdomain_base: str = "kb.example.com"
 
+    # M4 off-site seeding channels (design §10; PRD §6.5)
+    seeding_channels_enabled: list[str] = [
+        "reddit", "quora", "g2", "capterra", "listicle", "wikipedia", "pr_wire", "expert_byline",
+    ]
+
+    # M4 bandit effort allocation (design §6.3/§8)
+    bandit_policy: str = "ucb1"               # "ucb1" | "thompson"
+    bandit_explore_c: float = 1.0
+
+    # M4 self-adaptation: retrain trigger on drift breach (reuses `drift_threshold` above, M1)
+    retrain_on_breach: bool = True
+
+    # M4 RaaS pricing (design §9; PRD §9); no secrets here -- billing credentials stay in env/SSM
+    raas_enabled: bool = False
+    raas_basis: str = "per_lead"              # "per_lead" | "pct_pipeline"
+    raas_rate: float = 0.0
+
     @model_validator(mode="after")
     def _forbid_insecure_defaults_in_production(self) -> "Settings":
         """Fail fast at construction if a production deployment still carries a dev-default secret.
