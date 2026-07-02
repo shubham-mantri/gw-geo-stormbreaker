@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { getToken } from "@/lib/auth";
+import { FiltersProvider } from "@/lib/filters";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 
@@ -26,12 +27,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (!authed) return null;
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <div className="flex min-h-screen flex-1 flex-col">
-        <TopBar />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+    <FiltersProvider>
+      <div className="flex min-h-screen">
+        <Sidebar />
+        <div className="flex min-h-screen flex-1 flex-col">
+          <TopBar />
+          <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        </div>
       </div>
-    </div>
+    </FiltersProvider>
   );
 }

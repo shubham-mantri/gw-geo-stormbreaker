@@ -41,6 +41,11 @@ export type EngineRow = {
   trend: EngineTrendPoint[];
 };
 
+/**
+ * Prompt-management shape — the `GET/POST /brands/{id}/prompts` set that Settings
+ * edits (ui-spec §6, §3.8). Distinct from the prompt-level *metrics* returned
+ * inside the visibility response (see `PromptMetric`).
+ */
 export type Prompt = {
   id: string;
   text: string;
@@ -49,9 +54,22 @@ export type Prompt = {
   persona: string;
 };
 
+/**
+ * Per-prompt metrics returned inside the visibility response (T14 / ui-spec
+ * §3.2): the prompt-level table + "view sampled answers" drawer read these.
+ */
+export type PromptMetric = {
+  prompt_id: string;
+  text: string;
+  mention_rate: number;
+  avg_position: number | null;
+  /** Number of sampled answers behind this prompt's metrics. */
+  n_samples: number;
+};
+
 export type VisibilityResponse = {
   engines: EngineRow[];
-  prompts: Prompt[];
+  prompts: PromptMetric[];
 };
 
 // ── Sources (3.3) ────────────────────────────────────────────────────────────
