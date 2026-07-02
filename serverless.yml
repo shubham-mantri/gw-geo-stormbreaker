@@ -1,0 +1,20 @@
+# Skeleton — fleshed out in M0 (see docs/trd.md and docs/tasks/).
+# Mirrors gw-backend-stormbreaker conventions: Python 3.13, Lambda + Step Functions.
+service: gw-geo-stormbreaker
+
+frameworkVersion: "4"
+
+provider:
+  name: aws
+  runtime: python3.13
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  environment:
+    STAGE: ${self:provider.stage}
+    # DATABASE_URL, PINECONE_API_KEY, S3_BUCKET, etc. injected via SSM in M0
+
+# functions: defined per subsystem during M0 (probe workers, aggregator, attribution ingest, ...)
+functions: {}
+
+# plugins: serverless-python-requirements, etc. — added in M0
+plugins: []

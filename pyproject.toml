@@ -1,0 +1,26 @@
+[project]
+name = "gw-geo-stormbreaker"
+version = "0.0.1"
+description = "GEO / AI-search visibility, attribution & execution service for the Stormbreaker platform"
+requires-python = ">=3.13"
+dependencies = [
+    # pinned during M0 implementation planning; kept empty until then
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
