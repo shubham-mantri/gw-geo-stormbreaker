@@ -41,3 +41,31 @@ def test_ground_returns_facts_not_ids():
     kb = _kb()
     facts = kb.ground("uptime guarantee uptime", top_k=1)
     assert facts[0].category == "claim" and "uptime" in facts[0].text
+
+
+def test_ground_scored_pairs_facts_with_similarity_score():
+    kb = _kb()
+    results = kb.ground_scored("what is your pricing price?", top_k=1)
+    assert len(results) == 1
+    fact, score = results[0]
+    assert fact.id == "f1"
+    assert isinstance(score, float)
+    assert score > 0.0
+
+
+def test_ground_scored_orders_most_similar_first():
+    kb = _kb()
+    results = kb.ground_scored("uptime guarantee uptime", top_k=3)
+    scores = [score for _, score in results]
+    assert scores == sorted(scores, reverse=True)
+    assert results[0][0].category == "claim"
+
+
+def test_ground_scored_is_consistent_with_ground():
+    # `ground` is now implemented in terms of `ground_scored` (T15); the Facts (and their order)
+    # returned by each must always agree -- `ground` is just `ground_scored` with scores dropped.
+    kb = _kb()
+    query = "uptime guarantee uptime"
+    assert [f.id for f in kb.ground(query, top_k=2)] == [
+        f.id for f, _ in kb.ground_scored(query, top_k=2)
+    ]

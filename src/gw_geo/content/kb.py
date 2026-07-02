@@ -3,8 +3,9 @@
 The knowledge base (PRD §6.4) is the per-brand source of truth -- approved facts, USPs, products,
 pricing, certifications, and claims -- indexed in a vector store for semantic retrieval.
 `KnowledgeBase.ground(query)` returns the `Fact`s a generated claim can be checked against, which
-is what makes generation checkable rather than hallucinated (consumed by the T15 claim-
-verification guardrail).
+is what makes generation checkable rather than hallucinated; `ground_scored(query)` is the same
+lookup paired with each `Fact`'s similarity score, so a claim can be thresholded on how strongly it
+is supported (consumed by the T15 claim-verification guardrail).
 
 Both the embedding model (`EmbeddingClient`) and the vector index (`VectorStore`) are injected
 `Protocol`s, so the hermetic test suite (`tests/content/test_kb.py`) never makes a live embedding
@@ -49,7 +50,9 @@ class KnowledgeBase:
     `add_fact` embeds and indexes one approved `Fact`; `ground` runs semantic search and
     reconstructs the top-k supporting `Fact`s from what was indexed -- no separate database
     round-trip is needed, since the full `Fact` was stored as the vector's metadata at `add_fact`
-    time.
+    time. `ground_scored` is the same lookup but also returns each `Fact`'s similarity score, for
+    callers (the T15 claim-verification guardrail) that must threshold on how strongly a `Fact`
+    supports a claim rather than just retrieving the top-k matches.
     """
 
     def __init__(self, *, brand_id: str, store: VectorStore, embedder: EmbeddingClient) -> None:
@@ -75,9 +78,17 @@ class KnowledgeBase:
 
     def ground(self, query: str, *, top_k: int = 5) -> list[Fact]:
         """Return the `top_k` `Fact`s most semantically relevant to `query`, most relevant first."""
+        return [fact for fact, _ in self.ground_scored(query, top_k=top_k)]
+
+    def ground_scored(self, query: str, *, top_k: int = 5) -> list[tuple[Fact, float]]:
+        """Like `ground`, but pairs each `Fact` with its similarity score, most relevant first.
+
+        Added for the T15 claim-verification guardrail (back-compatible with T06: `ground`'s
+        signature and behavior are unchanged, and are now implemented in terms of this method).
+        """
         vector = self._embedder.embed(query)
         matches = self._store.query(vector, top_k)
-        return [Fact(**meta) for _, _, meta in matches]
+        return [(Fact(**meta), score) for _, score, meta in matches]
 
 
 # --------------------------------------------------------------------------------------------
