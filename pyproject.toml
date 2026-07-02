@@ -22,6 +22,13 @@ dependencies = [
   # into `answer_text`/`cited_urls` via BeautifulSoup. `>=4.13` ships inline type hints
   # (py.typed), so no separate stub package is needed for mypy.
   "beautifulsoup4>=4.13",
+  # API layer (M2-T03+): FastAPI serves the ui-spec §6 REST contract; Mangum wraps the same
+  # ASGI app onto the existing Lambda target (no separate deploy path). argon2-cffi + PyJWT back
+  # the self-contained backend auth (m2-design §7) -- no Clerk/Auth0 dependency.
+  "fastapi>=0.115",
+  "mangum>=0.17",
+  "argon2-cffi>=23.1",
+  "PyJWT>=2.8",
 ]
 
 [project.optional-dependencies]
