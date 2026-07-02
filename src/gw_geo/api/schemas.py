@@ -287,3 +287,27 @@ class ContentPublishResponse(BaseModel):
 
     status: str
     published_url: str
+
+
+# --- Opportunities queue (M3-T21, ui-spec §3.4/§6) -------------------------------------------
+
+
+class OpportunityOut(BaseModel):
+    """One row of ``GET /brands/{id}/opportunities`` (ui-spec §3.4/§6, verbatim) -- a ranked
+    visibility gap (``orchestration.opportunities.build_opportunities``, T19). Exactly these five
+    keys -- the underlying ``Opportunity``'s ``tenant_id``/``brand_id``/``source_gap``/``status``
+    stay server-side and are not exposed to the client.
+    """
+
+    id: str
+    title: str
+    rationale: str
+    est_impact: float
+    engine: str | None
+
+
+class OpportunityActResponse(BaseModel):
+    """``POST /opportunities/{id}/act`` response (ui-spec §3.4/§6, verbatim): the id of the content
+    draft the "Fix this ▸" action spawned via the content pipeline (T22)."""
+
+    content_id: str
