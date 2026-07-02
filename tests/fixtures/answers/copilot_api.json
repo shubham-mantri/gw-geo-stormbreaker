@@ -1,0 +1,29 @@
+{
+  "id": "copilot-8f3e2b1a-9c4d-4e5f-8a1b-2c3d4e5f6a7b",
+  "model": "copilot",
+  "createdAt": "2026-06-30T12:00:00Z",
+  "answer": {
+    "author": "bot",
+    "text": "For small and midsize businesses, HubSpot CRM and Zoho CRM are the most commonly recommended options. HubSpot's free tier and marketing integrations make it a strong starting point, per G2's CRM rankings. Zoho CRM stands out on price-to-feature ratio, per Capterra's pricing comparison. Pipedrive is a popular lightweight, sales-first alternative for smaller sales teams."
+  },
+  "sourceAttributions": [
+    {
+      "providerDisplayName": "G2",
+      "url": "https://www.g2.com/categories/crm",
+      "seeMoreUrl": "https://www.g2.com/categories/crm"
+    },
+    {
+      "providerDisplayName": "Capterra",
+      "url": "https://www.capterra.com/customer-relationship-management-software/",
+      "seeMoreUrl": "https://www.capterra.com/customer-relationship-management-software/"
+    },
+    {
+      "providerDisplayName": "Wikipedia",
+      "url": "https://en.wikipedia.org/wiki/Customer_relationship_management",
+      "seeMoreUrl": "https://en.wikipedia.org/wiki/Customer_relationship_management"
+    }
+  ],
+  "usage": {
+    "requestsCharged": 1
+  }
+}
