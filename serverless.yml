@@ -22,5 +22,26 @@ functions:
     # contents to the deployment root) is a deployment concern tracked separately from M0.
     handler: gw_geo.handlers.run_measurement.handler
 
+  run_drift:
+    # Daily drift canary (TRD §5.6, m1-design §4): probes the fixed canary set through the
+    # normal registered adapters via `gw_geo.orchestration.drift.run_drift_canary`, using the
+    # same `build_runtime` wiring as `runMeasurement`, and alerts to SNS on a baseline-rate
+    # breach (docs/tasks/M1-T17-drift-schedule-handler.md). Schedule-triggered only — no other
+    # event source needed.
+    handler: gw_geo.handlers.run_drift.handler
+    environment:
+      # Keys read by build_runtime + the ClaudeExtractor + S3RawArchive + DB session this
+      # handler wires today; more M1 engine keys (Gemini/Copilot/DeepSeek) join here once
+      # M1-T18 wires them into build_runtime's registration.
+      GEO_DATABASE_URL: ${env:GEO_DATABASE_URL, ''}
+      GEO_S3_BUCKET: ${env:GEO_S3_BUCKET, ''}
+      GEO_PERPLEXITY_API_KEY: ${env:GEO_PERPLEXITY_API_KEY, ''}
+      GEO_OPENAI_API_KEY: ${env:GEO_OPENAI_API_KEY, ''}
+      GEO_ANTHROPIC_API_KEY: ${env:GEO_ANTHROPIC_API_KEY, ''}
+      GEO_DRIFT_THRESHOLD: ${env:GEO_DRIFT_THRESHOLD, '0.2'}
+      GEO_DRIFT_SNS_TOPIC_ARN: ${env:GEO_DRIFT_SNS_TOPIC_ARN, ''}
+    events:
+      - schedule: cron(0 6 * * ? *)
+
 # plugins: serverless-python-requirements, etc. — added in M0
 plugins: []
