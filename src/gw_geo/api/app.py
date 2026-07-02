@@ -1,10 +1,11 @@
 """FastAPI app factory (m2-design.md §3): the tenant-scoped REST skin over the measurement /
 attribution core.
 
-``create_app()`` mounts the auth + lead-capture + brands/overview + visibility/sources routers,
-wires the tenancy/RBAC dependencies, configures CORS for ``web/``, and maps domain errors to HTTP
-status codes. Building the app performs no I/O -- the DB engine is created lazily and opens no
-connection until first use -- so ``handlers/api.py`` can build it at import time.
+``create_app()`` mounts the auth + lead-capture + brands/overview + visibility/sources +
+settings (prompts/integrations/snippet) routers, wires the tenancy/RBAC dependencies, configures
+CORS for ``web/``, and maps domain errors to HTTP status codes. Building the app performs no I/O --
+the DB engine is created lazily and opens no connection until first use -- so ``handlers/api.py``
+can build it at import time.
 
 Error mapping (m2-design.md §3, ui-spec.md §5): ``AuthError -> 401``, ``PermissionError -> 403``,
 ``LookupError -> 404`` (e.g. an unknown brand for the tenant -- a 404, never a 403 tenant leak).
@@ -25,6 +26,7 @@ from gw_geo.api import auth
 from gw_geo.api.auth import AuthError, TokenPair
 from gw_geo.api.deps import get_db_session, get_settings_dep
 from gw_geo.api.routers import brands, leadcapture, visibility
+from gw_geo.api.routers import settings as settings_router
 from gw_geo.api.schemas import LoginRequest, RefreshRequest
 from gw_geo.common.config import Settings, get_settings
 
@@ -118,6 +120,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(brands.router)
     app.include_router(leadcapture.router)
     app.include_router(visibility.router)
+    # Imported as `settings_router` (not `settings`): this function's own `settings` parameter
+    # would otherwise shadow the module import for the rest of this function body.
+    app.include_router(settings_router.router)
 
     # The public leadcapture router ships a deliberately-unimplemented get_db_session; point it at
     # the real (unscoped) session provider so the beacon can write. Its per-brand write-key -- not a
