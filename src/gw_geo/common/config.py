@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     perplexity_api_key: str = ""
     openai_api_key: str = ""
+    anthropic_api_key: str = ""
     default_n_samples: int = 8
     default_geos: list[str] = ["us"]
     max_probe_concurrency: int = 8
