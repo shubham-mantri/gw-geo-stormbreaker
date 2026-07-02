@@ -16,11 +16,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as SASession
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from gw_geo.api import auth
 from gw_geo.api.auth import AuthError, TokenPair
@@ -54,8 +55,14 @@ def refresh(
     body: RefreshRequest,
     settings: Annotated[Settings, Depends(get_settings_dep)],
 ) -> TokenPair:
-    """Exchange a valid refresh token for a fresh token pair (``AuthError -> 401``)."""
-    principal = auth.decode_token(body.refresh_token, secret=settings.jwt_secret)
+    """Exchange a valid refresh token for a fresh token pair (``AuthError -> 401``).
+
+    Requires a *refresh* token specifically (``expected_type="refresh"``): an access token replayed
+    here is rejected, so a short-lived access token can never be laundered into a fresh pair.
+    """
+    principal = auth.decode_token(
+        body.refresh_token, secret=settings.jwt_secret, expected_type="refresh"
+    )
     return auth.issue_tokens(
         user_id=principal.user_id,
         tenant_id=principal.tenant_id,
@@ -73,6 +80,41 @@ _core_router = APIRouter()
 def healthz() -> dict[str, str]:
     """Liveness probe -- open, no auth."""
     return {"status": "ok"}
+
+
+# The one public, unauthenticated endpoint (the pixel beacon). It is embedded on arbitrary
+# third-party customer sites, so it needs its own permissive CORS -- separate from the credentialed,
+# dashboard-only policy that guards the authed API.
+_PUBLIC_BEACON_PATH = "/lead-capture/collect"
+
+
+async def _public_beacon_cors(
+    request: Request, call_next: RequestResponseEndpoint
+) -> Response:
+    """Scoped, permissive CORS for ONLY ``POST /lead-capture/collect`` (m2-design §6).
+
+    The app-wide :class:`CORSMiddleware` is credentialed and locked to the dashboard origin, which
+    is correct for the authed API but would block the pixel -- served from any customer domain --
+    from beaconing here cross-origin. This middleware opens just that one route: ``allow-origin: *``,
+    ``POST``/``OPTIONS`` only, and **no** credentials (the write-key in the body authorizes the
+    write; cookies/Authorization are never used on this endpoint, so ``*`` is safe). Every other
+    path is passed straight through to the credentialed policy untouched.
+
+    Registered last in :func:`create_app` so it sits *outside* the app-wide policy and can answer
+    the cross-origin preflight that policy would otherwise reject. Per-brand Origin allowlisting
+    (keyed on the write-key's brand) is the M3 hardening.
+    """
+    if request.url.path != _PUBLIC_BEACON_PATH:
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        response: Response = Response(status_code=200)  # short-circuit the preflight
+    else:
+        response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    requested = request.headers.get("access-control-request-headers")
+    response.headers["Access-Control-Allow-Headers"] = requested or "*"
+    return response
 
 
 def _install_exception_handlers(app: FastAPI) -> None:
@@ -112,6 +154,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added AFTER the app-wide policy so it is the OUTERMOST middleware (Starlette applies the
+    # last-added first): it can intercept the public beacon's cross-origin preflight before the
+    # credentialed policy above rejects it, while leaving every authed route on that strict policy.
+    app.add_middleware(BaseHTTPMiddleware, dispatch=_public_beacon_cors)
 
     _install_exception_handlers(app)
 

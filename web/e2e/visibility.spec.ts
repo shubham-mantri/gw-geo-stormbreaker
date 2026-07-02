@@ -21,7 +21,7 @@ const VISIBILITY = {
       ci: [0.36, 0.48],
       cited: 0.31,
       avg_position: 2.4,
-      sentiment: "positive",
+      sentiment: 0.6,
       n_samples: 120,
       trend: [
         { date: "2026-06-01", mention_rate: 0.3 },

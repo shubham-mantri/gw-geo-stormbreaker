@@ -143,9 +143,13 @@ export function apiClient(
       return created;
     },
     connectIntegration: (kind, config) =>
+      // Backend expects the config wrapped in a `{ config }` envelope (IntegrationConnect);
+      // POSTing the raw dict 422s. TODO(M3): surface a real credential-ref input form in
+      // IntegrationsPanel/OnboardingWizard so `config` carries an actual secret-store pointer
+      // (currently always `{}` from the callers) — for now this only fixes the wire shape.
       request<IntegrationResult>(`/integrations/${encodeURIComponent(kind)}`, {
         method: "POST",
-        body: JSON.stringify(config),
+        body: JSON.stringify({ config }),
       }),
     leadCaptureSnippet: (brandId) =>
       request<SnippetResponse>(

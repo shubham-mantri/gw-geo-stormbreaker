@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from gw_geo.common import config
 
 
@@ -7,6 +10,40 @@ def test_defaults_present():
     assert s.cors_allow_origins == ["http://localhost:3000"]
     assert s.hubspot_client_id == ""      # unset = not configured
     assert s.pixel_write_key_salt
+    assert s.environment == "development"  # non-prod by default
+
+
+def test_insecure_defaults_allowed_in_non_production():
+    # review fix #3: the dev-default secret/salt are fine outside production (tests + e2e rely on
+    # this) -- construction must not raise.
+    s = config.Settings()
+    assert s.jwt_secret == "dev-insecure-change-me"
+    assert s.pixel_write_key_salt == "dev-salt"
+
+
+def test_insecure_jwt_secret_fails_fast_in_production():
+    # review fix #3: shipping the dev JWT secret to production must fail at settings construction.
+    with pytest.raises(ValidationError):
+        config.Settings(environment="production")
+
+
+def test_insecure_pixel_salt_fails_fast_in_production():
+    # review fix #3: the dev pixel salt must also fail fast in production.
+    with pytest.raises(ValidationError):
+        config.Settings(
+            environment="production",
+            jwt_secret="a-real-32-byte-production-secret!!",
+        )
+
+
+def test_production_with_real_secrets_constructs():
+    # review fix #3: real secrets in production construct cleanly.
+    s = config.Settings(
+        environment="production",
+        jwt_secret="a-real-32-byte-production-secret!!",
+        pixel_write_key_salt="a-real-production-pixel-salt",
+    )
+    assert s.environment == "production"
 
 
 def test_env_override(monkeypatch):
