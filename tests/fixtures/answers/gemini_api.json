@@ -1,0 +1,68 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "For small and midsize businesses, HubSpot CRM and Zoho CRM are the two most commonly recommended options. HubSpot's free tier and marketing integrations make it a popular starting point, while Zoho CRM stands out for its price-to-feature ratio. Pipedrive is also frequently mentioned as a lightweight, sales-first alternative for smaller teams."
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "groundingMetadata": {
+        "webSearchQueries": ["best crm for smb"],
+        "searchEntryPoint": {
+          "renderedContent": "<div class=\"search-entry-point\">...</div>"
+        },
+        "groundingChunks": [
+          {
+            "web": {
+              "uri": "https://www.g2.com/categories/crm",
+              "title": "g2.com"
+            }
+          },
+          {
+            "web": {
+              "uri": "https://www.capterra.com/customer-relationship-management-software/",
+              "title": "capterra.com"
+            }
+          },
+          {
+            "web": {
+              "uri": "https://www.pcmag.com/picks/best-crm-software",
+              "title": "pcmag.com"
+            }
+          }
+        ],
+        "groundingSupports": [
+          {
+            "segment": {
+              "startIndex": 0,
+              "endIndex": 118,
+              "text": "For small and midsize businesses, HubSpot CRM and Zoho CRM are the two most commonly recommended options."
+            },
+            "groundingChunkIndices": [0, 1],
+            "confidenceScores": [0.94, 0.88]
+          },
+          {
+            "segment": {
+              "startIndex": 232,
+              "endIndex": 351,
+              "text": "Pipedrive is also frequently mentioned as a lightweight, sales-first alternative for smaller teams."
+            },
+            "groundingChunkIndices": [2],
+            "confidenceScores": [0.81]
+          }
+        ]
+      },
+      "avgLogprobs": -0.146
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 12,
+    "candidatesTokenCount": 78,
+    "totalTokenCount": 90
+  },
+  "modelVersion": "gemini-2.5-flash"
+}
