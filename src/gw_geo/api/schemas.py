@@ -3,14 +3,15 @@
 Response shapes for the read endpoints (overview / visibility / sources / pipeline / ...) are added
 by their owning router tasks (T13-T16). This module holds the auth request bodies, the brand
 create/list/overview shapes (``routers/brands.py``, T13), the visibility/sources shapes
-(``routers/visibility.py``, T14), and the prompt/integration/snippet shapes
-(``routers/settings.py``, T16). The token response reuses :class:`gw_geo.api.auth.TokenPair`
-directly (no duplicate model).
+(``routers/visibility.py``, T14), the prompt/integration/snippet shapes (``routers/settings.py``,
+T16), and the pipeline/alerts shapes (``routers/pipeline.py``, T15). The token response reuses
+:class:`gw_geo.api.auth.TokenPair` directly (no duplicate model).
 """
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -180,3 +181,51 @@ class SnippetOut(BaseModel):
     tag, carrying the brand's write-key (``attribution.ingest.mint_write_key``)."""
 
     snippet: str
+
+
+class PipelineTopAnswerOut(BaseModel):
+    """One row of ``GET /brands/{id}/pipeline``'s ``top_answers`` (ui-spec §3.6, verbatim)."""
+
+    prompt: str
+    leads: int
+    value: float
+
+
+class PipelineMethodBreakdownOut(BaseModel):
+    """``method_breakdown`` (ui-spec §3.6/§6) -- the anti-overclaim method mix behind
+    ``influenced``/``attributed`` (m2-design §1 "non-overclaim rule", PRD §13). Always carries all
+    four keys regardless of data: :func:`gw_geo.attribution.pipeline.pipeline_view` (T10) never
+    omits a method, only zeroes its figure.
+    """
+
+    direct: float
+    citation_linked: float
+    assisted: float
+    holdout_incremental: float
+
+
+class PipelineOut(BaseModel):
+    """``GET /brands/{id}/pipeline`` response (ui-spec §3.6/§6, verbatim) -- validates
+    :func:`gw_geo.attribution.pipeline.pipeline_view` (T10)'s output shape unchanged.
+    ``confidence_note`` is never empty (the honesty/anti-overclaim rule, PRD §13) and always
+    accompanies the headline ``influenced``/``attributed`` numbers.
+    """
+
+    influenced: float
+    attributed: float
+    leads: int
+    lift: float
+    top_answers: list[PipelineTopAnswerOut]
+    method_breakdown: PipelineMethodBreakdownOut
+    confidence_note: str
+
+
+class AlertOut(BaseModel):
+    """One row of ``GET /brands/{id}/alerts`` (ui-spec §3.7/§6, verbatim) -- a drift breach (the
+    system-level ``drift_event`` table, m1-design §6) or a win detection (e.g. a prompt newly
+    ranking the brand #1), severity-tagged for the dashboard's red/green/yellow treatment.
+    """
+
+    severity: Literal["red", "green", "yellow"]
+    message: str
+    ts: datetime
