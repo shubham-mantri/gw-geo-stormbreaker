@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from gw_geo.common import db
-from gw_geo.common.models import AnswerExtraction, Brand, ProbeResult
+from gw_geo.common.models import AnswerExtraction, Brand
 from gw_geo.measurement.aggregate import aggregate
 from gw_geo.measurement.parse import Extractor, parse
 from gw_geo.measurement.probe import base
@@ -122,18 +122,55 @@ def _new_id() -> str:
 async def _observed_rate(
     canary: Canary, *, extractor: Extractor, archive: RawArchive, date: str
 ) -> float:
-    """Probe `canary`'s adapter `_SAMPLES_PER_CANARY`x and return the aggregated mention rate."""
+    """Probe `canary`'s adapter `_SAMPLES_PER_CANARY`x and return the aggregated mention rate.
+
+    Each probe is isolated exactly like `runner.py`'s per-probe resilience: probes are gathered
+    with `return_exceptions=True`, and each successful result's archive+parse is wrapped, so one
+    failed probe (HTTP error, bad payload, or extractor raise) is logged and dropped instead of
+    aborting the whole canary. Only the successful `ProbeResult`s are aggregated. If *every* probe
+    for this canary failed -- typically a full engine outage, the strongest possible drift signal
+    -- the rate is `0.0` (so `drop = baseline_rate - 0.0`, normally a breach) rather than a raised
+    exception that would discard every other canary's already-computed result.
+    """
     adapter = base.get_adapter(canary.engine)
     brand = Brand(id=canary.canary_id, tenant_id=_SYSTEM_TENANT_ID, name=canary.brand, domain="")
 
-    probe_results: list[ProbeResult] = await asyncio.gather(
-        *(adapter.probe(canary.prompt) for _ in range(_SAMPLES_PER_CANARY))
+    probe_results = await asyncio.gather(
+        *(adapter.probe(canary.prompt) for _ in range(_SAMPLES_PER_CANARY)),
+        return_exceptions=True,
     )
 
     extractions: list[AnswerExtraction] = []
     for probe_result in probe_results:
-        archive.put(f"drift/{canary.engine}/{canary.canary_id}/{_new_id()}.json", probe_result.raw)
-        extractions.append(parse(probe_result, brand, extractor, _new_id()))
+        if isinstance(probe_result, BaseException):
+            logger.warning(
+                "drift probe failed engine=%s canary_id=%s: %r",
+                canary.engine,
+                canary.canary_id,
+                probe_result,
+            )
+            continue
+        try:
+            archive.put(
+                f"drift/{canary.engine}/{canary.canary_id}/{_new_id()}.json", probe_result.raw
+            )
+            extractions.append(parse(probe_result, brand, extractor, _new_id()))
+        except Exception as exc:
+            logger.warning(
+                "drift archive/parse failed engine=%s canary_id=%s: %r",
+                canary.engine,
+                canary.canary_id,
+                exc,
+            )
+
+    if not extractions:
+        logger.warning(
+            "drift canary produced no usable probes engine=%s canary_id=%s; "
+            "treating observed_rate as 0.0",
+            canary.engine,
+            canary.canary_id,
+        )
+        return 0.0
 
     snapshot = aggregate(
         extractions,

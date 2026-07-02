@@ -18,19 +18,19 @@
         "groundingChunks": [
           {
             "web": {
-              "uri": "https://www.g2.com/categories/crm",
+              "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFdG2h9k3JqkZ0mN7pR4sX1vB6cE8wT2yU5aQ9wD",
               "title": "g2.com"
             }
           },
           {
             "web": {
-              "uri": "https://www.capterra.com/customer-relationship-management-software/",
+              "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHrTn4bV8xW2zC6dF0gH3jK5mP7qS9uY1aE4iL8oJ",
               "title": "capterra.com"
             }
           },
           {
             "web": {
-              "uri": "https://www.pcmag.com/picks/best-crm-software",
+              "uri": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQJpLm2nQ6rT9vX3yB7cD1fG5hJ8kN0sW4uZ6aC2eH",
               "title": "pcmag.com"
             }
           }
