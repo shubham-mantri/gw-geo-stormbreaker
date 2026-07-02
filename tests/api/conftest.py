@@ -23,7 +23,21 @@ from gw_geo.api import auth, deps
 from gw_geo.api.app import create_app
 from gw_geo.api.routers import leadcapture
 from gw_geo.common.config import Settings
-from gw_geo.common.db import AppUser, Base, Brand, Citation, Membership, Tenant, VisibilitySnapshot
+from gw_geo.common.db import (
+    AppUser,
+    AttributionLink,
+    Base,
+    Brand,
+    Citation,
+    DriftEvent,
+    HoldoutCohort,
+    Lead,
+    Membership,
+    Prompt,
+    Session,
+    Tenant,
+    VisibilitySnapshot,
+)
 
 # >= 32 bytes so PyJWT raises no InsecureKeyLengthWarning across the reused fixtures.
 TEST_JWT_SECRET = "test-jwt-secret-0123456789abcdef"
@@ -253,6 +267,142 @@ def seeded_citations(engine: Engine) -> None:
                 first_seen=now,
                 last_seen=now,
                 seen_count=1,
+            )
+        )
+        session.commit()
+
+
+@pytest.fixture
+def seeded_full_attribution(engine: Engine) -> None:
+    """Seed tenant ``t1``'s brand ``b1`` with sessions/leads/attribution-links spanning all three
+    lead-level methods (``direct``/``citation_linked``/``assisted``) plus a holdout cohort whose
+    tagged side converts worse than its optimized remainder -- so ``GET /brands/{id}/pipeline``
+    (T15, backed by ``attribution.pipeline.pipeline_view``, T10) reports genuinely non-zero figures
+    under all four ``method_breakdown`` keys, not just an always-present-but-empty key set.
+
+    Timestamps are "now" (like ``seeded_citations``) so they land inside the endpoint's
+    ``range=90d`` window regardless of the day a test runs. This is a *separate* fixture of the
+    same name as ``tests/attribution/test_pipeline.py``'s (file-local there, over its own ad hoc
+    engine) -- this one seeds the API tests' shared ``engine`` fixture instead, which is what the
+    ``app_client``/``get_db_session`` override actually reads from.
+    """
+    now = datetime.now(timezone.utc)
+    with SASession(engine) as session:
+        session.add(Tenant(id="t1", name="Acme", sampling_budget_daily=100.0))
+        session.add(
+            Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com", competitors=["Beta"])
+        )
+        session.add(
+            Prompt(id="p-cta", tenant_id="t1", brand_id="b1", text="best CRM for SaaS startups")
+        )
+
+        for sid, engine_name in (("s1", "perplexity"), ("s2", "perplexity"), ("s3", "chatgpt")):
+            session.add(
+                Session(
+                    id=sid,
+                    tenant_id="t1",
+                    brand_id="b1",
+                    visitor_id=f"v-{sid}",
+                    landing_url=f"https://acme.com/{sid}",
+                    referrer=None,
+                    utm={},
+                    engine=engine_name,
+                    ts=now,
+                )
+            )
+        session.add(
+            Lead(id="l1", tenant_id="t1", brand_id="b1", visitor_id="v-s1", session_id="s1",
+                 value_usd=100.0, ts=now)
+        )
+        session.add(
+            Lead(id="l2", tenant_id="t1", brand_id="b1", visitor_id="v-s2", session_id="s2",
+                 value_usd=200.0, ts=now)
+        )
+        session.add(
+            Lead(id="l3", tenant_id="t1", brand_id="b1", visitor_id="v-s3", session_id="s3",
+                 value_usd=50.0, ts=now)
+        )
+
+        # direct (l1, strongest -- via session s1)
+        session.add(
+            AttributionLink(id="lk-d1", tenant_id="t1", brand_id="b1", lead_id="l1",
+                             session_id="s1", citation_id=None, prompt_id=None,
+                             engine="perplexity", method="direct", confidence="high",
+                             value_usd=100.0, ts=now)
+        )
+        # citation_linked (l2, via session s2 -- reaches the lead through its session)
+        session.add(
+            AttributionLink(id="lk-c1", tenant_id="t1", brand_id="b1", lead_id=None,
+                             session_id="s2", citation_id=None, prompt_id="p-cta",
+                             engine="perplexity", method="citation_linked", confidence="high",
+                             value_usd=None, ts=now)
+        )
+        # assisted (l3, via session s3)
+        session.add(
+            AttributionLink(id="lk-a1", tenant_id="t1", brand_id="b1", lead_id="l3",
+                             session_id="s3", citation_id=None, prompt_id=None,
+                             engine="chatgpt", method="assisted", confidence="reported",
+                             value_usd=50.0, ts=now)
+        )
+
+        # holdout cohort: the tagged (holdout) side converts worse than the optimized remainder,
+        # so measure_incrementality yields a positive lift and thus holdout_incremental > 0.
+        session.add(
+            HoldoutCohort(id="ho1", tenant_id="t1", brand_id="b1", name="Q_holdout",
+                          kind="prompt", prompt_ids=["p-hold"], is_holdout=True, started_at=now)
+        )
+        for i in range(4):
+            sid = f"hold-s{i}"
+            session.add(
+                Session(id=sid, tenant_id="t1", brand_id="b1", visitor_id=f"v-{sid}",
+                        landing_url="https://acme.com/hold", referrer=None,
+                        utm={"prompt_id": "p-hold"}, engine=None, ts=now)
+            )
+            if i == 0:  # 1/4 converts on the un-optimized holdout side
+                session.add(
+                    Lead(id=f"hold-l{i}", tenant_id="t1", brand_id="b1", visitor_id=f"v-{sid}",
+                         session_id=sid, value_usd=500.0, ts=now)
+                )
+        for i in range(4):
+            sid = f"opt-s{i}"
+            session.add(
+                Session(id=sid, tenant_id="t1", brand_id="b1", visitor_id=f"v-{sid}",
+                        landing_url="https://acme.com/opt", referrer=None,
+                        utm={"prompt_id": "p-opt"}, engine=None, ts=now)
+            )
+            if i < 3:  # 3/4 convert on the optimized side
+                session.add(
+                    Lead(id=f"opt-l{i}", tenant_id="t1", brand_id="b1", visitor_id=f"v-{sid}",
+                         session_id=sid, value_usd=500.0, ts=now)
+                )
+        session.commit()
+
+
+@pytest.fixture
+def seeded_drift(engine: Engine) -> None:
+    """Seed tenant ``t1``'s brand ``b1`` (ownership, for ``/alerts``'s brand-scope check) plus one
+    breached, system-level ``DriftEvent`` for ``GET /brands/{id}/alerts`` (T15).
+
+    ``DriftEvent`` carries no ``tenant_id``/``brand_id`` (m1-design §6: engine drift is a property
+    of the engine/canary, not of any one tenant), so this alert is visible to any tenant that owns
+    *a* brand -- it is not scoped to ``b1`` specifically.
+    """
+    with SASession(engine) as session:
+        session.add(Tenant(id="t1", name="Acme", sampling_budget_daily=100.0))
+        session.add(
+            Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com", competitors=["Beta"])
+        )
+        session.add(
+            DriftEvent(
+                id="d1",
+                engine="chatgpt",
+                canary_id="chatgpt-crm-baseline",
+                baseline_rate=0.9,
+                observed_rate=0.5,
+                drop=0.4,
+                breached=True,
+                retrain_flag=True,
+                ts=datetime.now(timezone.utc),
             )
         )
         session.commit()
