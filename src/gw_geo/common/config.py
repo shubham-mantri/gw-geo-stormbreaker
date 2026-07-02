@@ -61,6 +61,29 @@ class Settings(BaseSettings):
     # M2 lead-capture pixel
     pixel_write_key_salt: str = _DEV_PIXEL_SALT
 
+    # M3 vector store + embeddings (TRD §2, OT4)
+    vector_store: str = "pinecone"            # "pinecone" | "pgvector"
+    pinecone_api_key: str = ""
+    pinecone_index: str = "gw-geo-kb"
+    embedding_model: str = "text-embedding-3-large"
+
+    # M3 ranking (TRD §8)
+    ranking_model_type: str = "gbt"           # "gbt" | "logreg"
+
+    # M3 guardrail thresholds (fail-closed defaults; PRD §6.4)
+    originality_threshold: float = 0.25       # max allowed shingle Jaccard vs corpus
+    claim_sim_threshold: float = 0.8          # min KB support for a claim to be "verified"
+    brand_voice_min: float = 0.7              # min brand-voice conformance score
+
+    # M3 publishing connectors (PRD §6.4)
+    wordpress_base_url: str = ""
+    wordpress_token: str = ""
+    webflow_token: str = ""
+    webflow_site_id: str = ""
+    framer_token: str = ""
+    headless_publish_url: str = ""
+    hosted_subdomain_base: str = "kb.example.com"
+
     @model_validator(mode="after")
     def _forbid_insecure_defaults_in_production(self) -> "Settings":
         """Fail fast at construction if a production deployment still carries a dev-default secret.
