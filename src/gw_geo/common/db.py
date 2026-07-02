@@ -129,6 +129,48 @@ class VisibilitySnapshot(Base):
     ci_high: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class DriftEvent(Base):
+    """Engine drift-canary breach record (m1-design §6, TRD §5.6).
+
+    SYSTEM-LEVEL: intentionally has no `tenant_id` -- engine drift (e.g. Gemini's citation rate
+    dropping) is a property of the engine/canary, not of any one tenant, so this is a documented
+    exception to the per-row `tenant_id` rule that otherwise applies to every table in this module.
+    """
+
+    __tablename__ = "drift_event"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    engine: Mapped[str] = mapped_column(String, index=True)
+    canary_id: Mapped[str] = mapped_column(String, index=True)
+    baseline_rate: Mapped[float] = mapped_column(Float)
+    observed_rate: Mapped[float] = mapped_column(Float)
+    drop: Mapped[float] = mapped_column(Float)
+    breached: Mapped[bool] = mapped_column(Boolean)
+    retrain_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    ts: Mapped[datetime] = mapped_column(DateTime)
+
+
+class VisibilityRollup(Base):
+    """Daily tenant-scoped rollup of `VisibilitySnapshot`, for fast dashboard time-series
+    (m1-design §5/§6)."""
+
+    __tablename__ = "visibility_rollup"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenant.id"), index=True)
+    brand_id: Mapped[str] = mapped_column(String, index=True)
+    engine: Mapped[str] = mapped_column(String, index=True)
+    geo: Mapped[str] = mapped_column(String)
+    persona: Mapped[str | None] = mapped_column(String, nullable=True)
+    date: Mapped[str] = mapped_column(String, index=True)
+    mention_rate: Mapped[float] = mapped_column(Float)
+    citation_rate: Mapped[float] = mapped_column(Float)
+    avg_position: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sentiment_score: Mapped[float] = mapped_column(Float)
+    share_of_voice: Mapped[float] = mapped_column(Float)
+    n_samples: Mapped[int] = mapped_column(Integer)
+
+
 class TenantScopedSession:
     """Wraps a `Session`, binding it to one `tenant_id` so cross-tenant reads/writes can't happen.
 
