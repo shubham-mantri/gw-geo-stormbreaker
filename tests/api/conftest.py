@@ -291,10 +291,11 @@ def seeded_citations(engine: Engine) -> None:
 @pytest.fixture
 def seeded_full_attribution(engine: Engine) -> None:
     """Seed tenant ``t1``'s brand ``b1`` with sessions/leads/attribution-links spanning all three
-    lead-level methods (``direct``/``citation_linked``/``assisted``) plus a holdout cohort whose
-    tagged side converts worse than its optimized remainder -- so ``GET /brands/{id}/pipeline``
-    (T15, backed by ``attribution.pipeline.pipeline_view``, T10) reports genuinely non-zero figures
-    under all four ``method_breakdown`` keys, not just an always-present-but-empty key set.
+    lead-level methods (``direct``/``citation_linked``/``assisted``) plus a holdout cohort **and a
+    symmetric optimized cohort** whose tagged (holdout) side converts worse than the optimized
+    cohort -- so ``GET /brands/{id}/pipeline`` (T15, backed by ``attribution.pipeline.pipeline_view``,
+    T10) reports genuinely non-zero figures under all four ``method_breakdown`` keys, not just an
+    always-present-but-empty key set.
 
     Timestamps are "now" (like ``seeded_citations``) so they land inside the endpoint's
     ``range=90d`` window regardless of the day a test runs. This is a *separate* fixture of the
@@ -361,11 +362,19 @@ def seeded_full_attribution(engine: Engine) -> None:
                              value_usd=50.0, ts=now)
         )
 
-        # holdout cohort: the tagged (holdout) side converts worse than the optimized remainder,
-        # so measure_incrementality yields a positive lift and thus holdout_incremental > 0.
+        # holdout experiment: a holdout cohort (p-hold) vs a symmetric *optimized* cohort (p-opt).
+        # The tagged holdout side converts worse than the tagged optimized cohort, so
+        # measure_incrementality yields a positive lift and thus holdout_incremental > 0. Both arms
+        # are cohort-scoped (m2-design §2.5): the untagged direct/citation/assisted sessions above
+        # (s1-s3, utm={}) are in NEITHER arm, so the optimized cohort must be seeded explicitly --
+        # otherwise the optimized arm is empty and lift degrades to 0.
         session.add(
             HoldoutCohort(id="ho1", tenant_id="t1", brand_id="b1", name="Q_holdout",
                           kind="prompt", prompt_ids=["p-hold"], is_holdout=True, started_at=now)
+        )
+        session.add(
+            HoldoutCohort(id="ho1-opt", tenant_id="t1", brand_id="b1", name="Q_optimized",
+                          kind="prompt", prompt_ids=["p-opt"], is_holdout=False, started_at=now)
         )
         for i in range(4):
             sid = f"hold-s{i}"

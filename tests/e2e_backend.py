@@ -136,21 +136,27 @@ def _seed(engine: Engine) -> None:
                               engine="chatgpt", method="assisted", confidence="reported",
                               value_usd=50_000.0, ts=now))
 
-        # --- holdout cohort: tagged side converts worse than optimized -> positive lift ---
+        # --- holdout experiment: a holdout cohort (p-hold) vs a symmetric optimized cohort (p-opt);
+        # the tagged holdout side converts worse than the tagged optimized cohort -> positive lift.
+        # Both arms are cohort-scoped (m2-design §2.5), so the optimized cohort is seeded explicitly
+        # (the untagged direct/assisted sessions s1-s3 are in neither arm) -- otherwise the optimized
+        # arm is empty and the Pipeline screen's incremental lift degrades to 0. ---
         s.add(HoldoutCohort(id="ho-1", tenant_id="t1", brand_id="b1", name="Q_holdout", kind="prompt",
                             prompt_ids=["p-hold"], is_holdout=True, started_at=now))
+        s.add(HoldoutCohort(id="ho-1-opt", tenant_id="t1", brand_id="b1", name="Q_optimized",
+                            kind="prompt", prompt_ids=["p-opt"], is_holdout=False, started_at=now))
         for i in range(4):
             hsid = f"hold-s{i}"
             s.add(PixelSession(id=hsid, tenant_id="t1", brand_id="b1", visitor_id=f"v-{hsid}",
                                landing_url="https://acme.com/hold", utm={"prompt_id": "p-hold"}, ts=now))
-            if i == 0:  # 1/4 convert on the un-optimized holdout side
+            if i == 0:  # 1/4 convert on the un-optimized holdout cohort
                 s.add(Lead(id=f"hold-l{i}", tenant_id="t1", brand_id="b1", visitor_id=f"v-{hsid}",
                            session_id=hsid, value_usd=500.0, ts=now))
         for i in range(4):
             osid = f"opt-s{i}"
             s.add(PixelSession(id=osid, tenant_id="t1", brand_id="b1", visitor_id=f"v-{osid}",
                                landing_url="https://acme.com/opt", utm={"prompt_id": "p-opt"}, ts=now))
-            if i < 3:  # 3/4 convert on the optimized side
+            if i < 3:  # 3/4 convert on the optimized cohort
                 s.add(Lead(id=f"opt-l{i}", tenant_id="t1", brand_id="b1", visitor_id=f"v-{osid}",
                            session_id=osid, value_usd=500.0, ts=now))
 
