@@ -58,6 +58,50 @@ class MemArchive:
         return key
 
 
+class EchoAdapter:
+    """Answer text echoes the prompt, so an extractor can target one specific prompt (I2)."""
+
+    name = "fake"
+    supports_citations = True
+
+    async def probe(self, prompt, *, geo="us", persona=None):
+        return ProbeResult(
+            engine="fake", answer_text=prompt, cited_urls=["https://foo.com"], cost_usd=0.001
+        )
+
+
+class FlakyExtractor:
+    """Raises for one specific answer text; succeeds (like StubExtractor) for all others (I2)."""
+
+    def __init__(self, fail_on):
+        self.fail_on = fail_on
+
+    def extract(self, text, brand):
+        if text == self.fail_on:
+            raise RuntimeError(f"extraction boom for {text!r}")
+        return {
+            "brand_mentioned": True,
+            "position": 1,
+            "sentiment": "positive",
+            "competitors_present": [],
+        }
+
+
+class OwnSiteAdapter:
+    """Cites the brand's own domain alongside a third-party URL (I3)."""
+
+    name = "fake"
+    supports_citations = True
+
+    async def probe(self, prompt, *, geo="us", persona=None):
+        return ProbeResult(
+            engine="fake",
+            answer_text="Acme is great",
+            cited_urls=["https://acme.com/pricing", "https://reddit.com/r/crm"],
+            cost_usd=0.001,
+        )
+
+
 @pytest.fixture
 def seeded_session() -> Iterator[Session]:
     """In-memory SQLite session: Tenant t1 (`sampling_budget_daily=1.0`), Brand b1, 3 prompts."""
@@ -159,3 +203,85 @@ async def test_runner_degrades_when_budget_exhausted(seeded_session):
         date="2026-07-02",
     )
     assert snaps == []
+
+
+async def test_runner_gates_whole_batch_not_single_probe(seeded_session):
+    """I1: a budget that admits one probe but not the full batch skips the engine (TRD §7).
+
+    3 prompts x 4 samples = 12 probes x $0.02 = $0.24 batch estimate. $0.10 clears a single
+    probe ($0.02) but not the batch, so the pre-batch gate must skip the engine entirely.
+    """
+    tenant = seeded_session.get(Tenant, "t1")
+    tenant.sampling_budget_daily = 0.10
+    seeded_session.commit()
+
+    base.clear_registry()
+    base.register(FakeAdapter())
+    snaps = await run_measurement(
+        session=seeded_session,
+        tenant_id="t1",
+        brand_id="b1",
+        engines=["fake"],
+        geos=["us"],
+        personas=[None],
+        n_samples=4,
+        extractor=StubExtractor(),
+        archive=MemArchive(),
+        date="2026-07-02",
+    )
+
+    assert snaps == []
+    # Skipped before probing -> nothing spent or persisted.
+    assert seeded_session.query(ProbeRun).count() == 0
+    assert seeded_session.query(VisibilitySnapshot).count() == 0
+
+
+async def test_runner_isolates_extraction_failure(seeded_session):
+    """I2: one probe's extraction failure is recorded as an error, never aborting the run."""
+    base.clear_registry()
+    base.register(EchoAdapter())
+    snaps = await run_measurement(
+        session=seeded_session,
+        tenant_id="t1",
+        brand_id="b1",
+        engines=["fake"],
+        geos=["us"],
+        personas=[None],
+        n_samples=2,
+        extractor=FlakyExtractor(fail_on="top crm tools?"),  # prompt p2's text
+        archive=MemArchive(),
+        date="2026-07-02",
+    )
+
+    # 3 prompts x 2 samples = 6 probes; p2's 2 fail extraction, p1+p3's 4 succeed.
+    assert len(snaps) == 1
+    assert snaps[0].n_samples == 4
+    assert seeded_session.query(ProbeRun).count() == 6
+    assert seeded_session.query(ProbeRun).filter_by(status="ok").count() == 4
+    assert seeded_session.query(ProbeRun).filter_by(status="error").count() == 2
+    assert seeded_session.query(AnswerExtraction).count() == 4
+
+
+async def test_runner_labels_own_site_citations(seeded_session):
+    """I3: an own-domain citation is stored as `own_site` (brand-aware), not `other`."""
+    base.clear_registry()
+    base.register(OwnSiteAdapter())
+    await run_measurement(
+        session=seeded_session,
+        tenant_id="t1",
+        brand_id="b1",
+        engines=["fake"],
+        geos=["us"],
+        personas=[None],
+        n_samples=1,
+        extractor=StubExtractor(),
+        archive=MemArchive(),
+        date="2026-07-02",
+    )
+
+    own = seeded_session.query(Citation).filter(Citation.url == "https://acme.com/pricing").one()
+    assert own.source_type == "own_site"
+    assert own.domain == "acme.com"
+
+    other = seeded_session.query(Citation).filter(Citation.url == "https://reddit.com/r/crm").one()
+    assert other.source_type == "reddit"

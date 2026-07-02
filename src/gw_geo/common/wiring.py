@@ -58,7 +58,12 @@ def build_runtime(settings: Settings) -> dict[str, Any]:
 
     where `"engines"` is the list of engine names this call actually registered (informational --
     callers decide independently which engines to *request* from `run_measurement`).
+
+    The shared adapter registry is process-global, so a warm Lambda (or any second CLI invocation
+    in one process) would otherwise hit `base.register`'s duplicate-name `ValueError`. Clearing the
+    registry first makes `build_runtime` idempotent: it always rebuilds from the current settings.
     """
+    base.clear_registry()
     engines: list[str] = []
 
     if settings.perplexity_api_key:

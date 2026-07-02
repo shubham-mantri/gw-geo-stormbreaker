@@ -12,7 +12,9 @@ from typing import Any
 import httpx
 import respx
 
-_FIXTURES_DIR = pathlib.Path("tests/fixtures/answers")
+# Anchor on this file (tests/measurement/probe/fixtures.py -> tests/) rather than the cwd, so
+# fixtures resolve regardless of the directory pytest is invoked from.
+_FIXTURES_DIR = pathlib.Path(__file__).resolve().parents[2] / "fixtures" / "answers"
 
 
 def _load_fixture(filename: str) -> dict[str, Any]:
