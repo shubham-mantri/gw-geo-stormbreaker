@@ -13,7 +13,10 @@ Three gap sources, each independently detected and scored (m3-design §4):
 - **sentiment** -- `VisibilitySnapshot.sentiment_score` (mapped to `[-1, 1]` by
   `measurement.aggregate.aggregate`, `0.0` = neutral) at or below `SENTIMENT_GAP_SCORE_MAX`: not
   solidly positive, so proof points would help (ui-spec: "Sentiment neutral on Gemini -- add
-  proof/data").
+  proof/data"). Never scored for an engine that is already an **absence** gap (`mention_rate` at
+  or below `ABSENCE_MENTION_RATE_MAX`): with (near-)zero mentions, `aggregate`'s `0.0`
+  `sentiment_score` is an empty-set default, not a measured neutral, so "absence" owns that
+  engine alone rather than also emitting a sentiment opportunity with a false rationale.
 - **source** -- a `RankingReport.channel_recommendations` entry (an engine's citation-source mix,
   see `ranking.recommend.channel_recommendations`) naming a channel the brand's own citation mix
   (`source_mix`, e.g. `measurement.feed.citation_source_mix`) barely touches: the engine trusts a
@@ -136,7 +139,16 @@ def _sentiment_opportunity(
     Gap size maps the `[-1, 1]` sentiment scale to a `[0, 1]` severity: fully negative (`-1.0`)
     is the maximum-size gap, neutral (`0.0`) is a mid-size one, and anything above the threshold
     never reaches this function at all.
+
+    An engine at/below `ABSENCE_MENTION_RATE_MAX` is skipped here entirely, even if its
+    `sentiment_score` is at/below the gap threshold: `measurement.aggregate.aggregate` reports
+    `sentiment_score=0.0` for an engine with (near-)zero mentions as an empty-set default, not a
+    measured neutral, so scoring it here would double-count the same gap as both "absence" (which
+    already owns this engine) and a spurious "sentiment neutral" opportunity carrying a false
+    rationale (there were no real mentions to be neutral about).
     """
+    if snapshot.mention_rate <= ABSENCE_MENTION_RATE_MAX:
+        return None
     if snapshot.sentiment_score > SENTIMENT_GAP_SCORE_MAX:
         return None
     polarity = "negative" if snapshot.sentiment_score < 0 else "neutral"

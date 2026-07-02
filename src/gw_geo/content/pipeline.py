@@ -18,13 +18,21 @@ Every collaborator is **injected** (LLM, corpus search, claim extractor, voice s
 connectors), so the whole pipeline is hermetically testable with in-memory fakes -- no live LLM /
 embedding / search / HTTP call (`docs/trd.md` §12).
 
-Persistence: `generate`/`approve`/`publish` keep the authoritative `(draft, report)` per content id
-in an in-memory store, which is what the id-addressed `/content/{id}/approve|publish` endpoints
-resolve against -- so the gate always runs over the *server-side* draft, never a client-supplied
-one. Durable persistence to the `content_asset` + `content_guardrail_report` tables
-(`gw_geo.common.db`) is the real-wiring follow-on (the service is constructed without a DB session
-today, exactly like M2 left its SecretProvider wiring as a follow-on); the in-memory store is the
-hermetic-fakes path called out in the task.
+Persistence: `generate`/`approve`/`publish` keep the authoritative `(draft, report)` per
+`(tenant_id, content_id)` in an in-memory store, which is what the id-addressed
+`/content/{id}/approve|publish` endpoints resolve against -- so the gate always runs over the
+*server-side* draft, never a client-supplied one. Durable persistence to the `content_asset` +
+`content_guardrail_report` tables (`gw_geo.common.db`) is the real-wiring follow-on (the service is
+constructed without a DB session today, exactly like M2 left its SecretProvider wiring as a
+follow-on); the in-memory store is the hermetic-fakes path called out in the task.
+
+Tenant scoping (m2-design's tenancy model, TRD §7): every asset is keyed by `(tenant_id,
+content_id)`, never `content_id` alone, and `get_asset`/`approve`/`publish` all take an explicit
+`tenant_id` that must match the asset's own -- a mismatch raises `LookupError` (-> **404** via
+M2's app-level handler), exactly like an unowned brand (`routers/brands.py`'s
+`_ensure_brand_owned`). "Doesn't exist" and "exists but belongs to another tenant" deliberately
+collapse to the same 404, so a foreign tenant's content id is never confirmed to exist (no IDOR:
+a tenant-B caller can never approve/publish/read tenant-A's draft by guessing its id).
 """
 
 from __future__ import annotations
@@ -84,9 +92,11 @@ class ContentService:
         self._connectors = connectors
         self._thresholds = thresholds
         self._id_fn = id_fn
-        # Authoritative server-side (draft, report) per content id -- the id-addressed
-        # approve/publish endpoints resolve against this, never a client-supplied draft.
-        self._assets: dict[str, tuple[ContentDraft, GuardrailReport]] = {}
+        # Authoritative server-side (draft, report) per (tenant_id, content_id) -- the
+        # id-addressed approve/publish endpoints resolve against this, never a client-supplied
+        # draft, and never across a tenant boundary (the tuple key is the IDOR fix: a content id
+        # alone is not enough to resolve an asset).
+        self._assets: dict[tuple[str, str], tuple[ContentDraft, GuardrailReport]] = {}
 
     def generate(
         self,
@@ -102,8 +112,9 @@ class ContentService:
         `facts` are the grounding facts the draft may state (the "ground" step -- retrieved by the
         caller from the KB); the injected `kb` here is used by the claim-verification guardrail to
         check the *generated* draft back against the brand's source of truth. Persists the resulting
-        `(draft, report)` under `draft.id` so the draft is later resolvable by id. Returns the
-        `DRAFT`-status draft and its `GuardrailReport` (whose `passed` gates approval).
+        `(draft, report)` under `(draft.tenant_id, draft.id)` (`brand.tenant_id`, stamped by
+        `generate_draft`) so the draft is later resolvable by id *within its own tenant only*.
+        Returns the `DRAFT`-status draft and its `GuardrailReport` (whose `passed` gates approval).
         """
         draft = generate_draft(
             brand=brand,
@@ -123,56 +134,82 @@ class ContentService:
             voice_profile=self._voice_profile,
             thresholds=self._thresholds,
         )
-        self._assets[draft.id] = (draft, report)
+        self._assets[(draft.tenant_id, draft.id)] = (draft, report)
         return draft, report
 
-    def get_asset(self, content_id: str) -> tuple[ContentDraft, GuardrailReport]:
-        """Resolve the authoritative `(draft, report)` for `content_id` (the id-addressed lookup
-        the `/content/{id}/approve|publish` endpoints run before enforcing the gate).
+    def get_asset(
+        self, *, tenant_id: str, content_id: str
+    ) -> tuple[ContentDraft, GuardrailReport]:
+        """Resolve the authoritative `(draft, report)` for `content_id` **within `tenant_id`**
+        (the id-addressed lookup the `/content/{id}/approve|publish` endpoints run before
+        enforcing the gate).
 
         Raises:
-            LookupError: no asset was generated under `content_id` (mapped to **404** by the API).
+            LookupError: no asset was generated under `content_id` for `tenant_id` -- either it
+                doesn't exist at all, or it exists under a *different* tenant. The two cases are
+                deliberately indistinguishable (both **404**, mapped by the API) so a caller can
+                never use this to probe for the existence of another tenant's content id.
         """
         try:
-            return self._assets[content_id]
+            return self._assets[(tenant_id, content_id)]
         except KeyError as exc:
             raise LookupError(f"content asset {content_id!r} not found") from exc
 
     def approve(
-        self, draft: ContentDraft, *, report: GuardrailReport, role: str
+        self, draft: ContentDraft, *, report: GuardrailReport, role: str, tenant_id: str
     ) -> ContentDraft:
         """Run the draft through the human approval gate (T17) and record the transition.
 
-        Moves a `DRAFT` draft to `PENDING_REVIEW` first, then delegates to
-        `content.approval.approve`, which raises `ApprovalError` unless **both** `report.passed`
-        and `role` is an authorized reviewer. The APPROVED draft is written back to the store so a
-        subsequent (separate) publish request resolves an approvable draft by id.
+        `tenant_id` must match `draft.tenant_id` (checked **first**, before any state
+        transition) -- a mismatch raises `LookupError`, the same "not found" a caller gets for an
+        unknown id, so this holds even if a caller ever obtains a `draft` some way other than a
+        tenant-scoped `get_asset`. Moves a `DRAFT` draft to `PENDING_REVIEW` first, then delegates
+        to `content.approval.approve`, which raises `ApprovalError` unless **both**
+        `report.passed` and `role` is an authorized reviewer. The APPROVED draft is written back
+        to the store so a subsequent (separate) publish request resolves an approvable draft by
+        id.
         """
+        self._ensure_tenant_owns(draft, tenant_id)
         pending = (
             draft
             if draft.status == ContentStatus.PENDING_REVIEW
             else submit_for_review(draft)
         )
         approved = _approve(pending, report=report, role=role)
-        self._assets[approved.id] = (approved, report)
+        self._assets[(approved.tenant_id, approved.id)] = (approved, report)
         return approved
 
-    async def publish(self, draft: ContentDraft, *, connector: str) -> PublishResult:
+    async def publish(
+        self, draft: ContentDraft, *, connector: str, tenant_id: str
+    ) -> PublishResult:
         """Publish `draft` via the named connector -- but only if it is `APPROVED`.
 
-        `ensure_publishable(draft)` runs **first** (raising `ApprovalError` unless the status is
-        `APPROVED`), before the connector is resolved, so an unapproved draft never reaches a
-        connector. Attaches freshness metadata (`datePublished`/`dateModified`) to the publish call
-        and records the resulting `PUBLISHED` status back to the store.
+        `tenant_id` must match `draft.tenant_id`, checked **first** -- before even
+        `ensure_publishable` -- so a cross-tenant call gets the same `LookupError` (-> 404) no
+        matter the draft's status, never a status-dependent response that could hint the id
+        exists under another tenant. `ensure_publishable(draft)` then runs (raising
+        `ApprovalError` unless the status is `APPROVED`), before the connector is resolved, so an
+        unapproved draft never reaches a connector. Attaches freshness metadata
+        (`datePublished`/`dateModified`) to the publish call and records the resulting
+        `PUBLISHED` status back to the store.
         """
+        self._ensure_tenant_owns(draft, tenant_id)
         ensure_publishable(draft)
         conn = self._resolve_connector(connector)
         now = datetime.now(timezone.utc).isoformat()
         result = await conn.publish(draft, freshness=freshness_meta(published=now, modified=now))
         published = draft.model_copy(update={"status": ContentStatus.PUBLISHED})
-        if draft.id in self._assets:
-            self._assets[draft.id] = (published, self._assets[draft.id][1])
+        key = (draft.tenant_id, draft.id)
+        if key in self._assets:
+            self._assets[key] = (published, self._assets[key][1])
         return result
+
+    @staticmethod
+    def _ensure_tenant_owns(draft: ContentDraft, tenant_id: str) -> None:
+        """Raise `LookupError` unless `draft.tenant_id == tenant_id` (no cross-tenant existence
+        leak: same error as an unknown id, per `get_asset`)."""
+        if draft.tenant_id != tenant_id:
+            raise LookupError(f"content asset {draft.id!r} not found")
 
     def _resolve_connector(self, name: str) -> PublishConnector:
         """Resolve a `PublishConnector` by name: the injected map first, then the shared registry.

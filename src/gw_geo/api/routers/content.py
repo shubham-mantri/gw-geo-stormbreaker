@@ -8,6 +8,13 @@ be reached with a client-supplied draft: the id resolves the *server-side* autho
 (``ApprovalError`` -> **409**). Nothing publishes without a passing ``GuardrailReport`` *and* an
 authorized approval -- the Athena failure, made structurally impossible.
 
+The id resolution is also **tenant-scoped**: ``get_asset``/``approve``/``publish`` all take
+``tenant_id=principal.tenant_id`` (never a client-supplied value) and raise ``LookupError`` --
+mapped to **404** by ``app.py``, same as an unowned brand -- when the id isn't found for that
+tenant. A tenant-B token can therefore never approve/publish/read tenant-A's draft by guessing its
+id: the 404 is indistinguishable from "doesn't exist at all", so it doesn't even confirm the id
+exists under another tenant.
+
 The :class:`ContentService` is **injected** via :func:`get_content_service` so the router is tested
 with a stub + ``app.dependency_overrides`` (no live LLM/guardrail/connector call), mirroring how the
 rest of the M2 API injects its collaborators. The default :func:`get_content_service` *raises*: the
@@ -98,13 +105,16 @@ def approve_content(
     """``POST /content/{id}/approve`` (ui-spec §6) -- the human approval gate.
 
     Requires ``role >= editor`` (a ``viewer`` -> **403**). Resolves the authoritative draft + its
-    guardrail report by id (unknown id -> **404**), then runs the T17 gate: approval is refused
+    guardrail report by id, scoped to the caller's own tenant (unknown id, *or* an id belonging to
+    another tenant -> **404**, never a tenant leak), then runs the T17 gate: approval is refused
     (``ApprovalError`` -> **409**) unless the report passed *and* the role is authorized. Returns
     ``{status}``.
     """
-    draft, report = svc.get_asset(content_id)
+    draft, report = svc.get_asset(tenant_id=principal.tenant_id, content_id=content_id)
     try:
-        approved = svc.approve(draft, report=report, role=principal.role)
+        approved = svc.approve(
+            draft, report=report, role=principal.role, tenant_id=principal.tenant_id
+        )
     except ApprovalError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return ContentApproveResponse(status=approved.status.value)
@@ -119,14 +129,15 @@ async def publish_content(
 ) -> ContentPublishResponse:
     """``POST /content/{id}/publish`` (ui-spec §6) -- publish an approved draft via a connector.
 
-    Requires ``role >= editor`` (a ``viewer`` -> **403**). Resolves the authoritative draft by id
-    (unknown id -> **404**); the service's ``ensure_publishable`` runs before any connector is
+    Requires ``role >= editor`` (a ``viewer`` -> **403**). Resolves the authoritative draft by id,
+    scoped to the caller's own tenant (unknown id, *or* an id belonging to another tenant ->
+    **404**, never a tenant leak); the service's ``ensure_publishable`` runs before any connector is
     touched, so an unapproved draft is refused (``ApprovalError`` -> **409**) -- the gate holds even
     for an authorized role. Returns ``{status, published_url}``.
     """
-    draft, _ = svc.get_asset(content_id)
+    draft, _ = svc.get_asset(tenant_id=principal.tenant_id, content_id=content_id)
     try:
-        result = await svc.publish(draft, connector=body.connector)
+        result = await svc.publish(draft, connector=body.connector, tenant_id=principal.tenant_id)
     except ApprovalError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return ContentPublishResponse(status="published", published_url=result.published_url)

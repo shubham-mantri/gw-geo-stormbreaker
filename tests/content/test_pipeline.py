@@ -139,10 +139,10 @@ async def test_generate_then_gate_then_publish() -> None:
     assert report.originality_ok and report.claims_ok and report.brand_voice_ok
     assert draft.status == ContentStatus.DRAFT
 
-    approved = svc.approve(draft, report=report, role="editor")
+    approved = svc.approve(draft, report=report, role="editor", tenant_id="t1")
     assert approved.status == ContentStatus.APPROVED
 
-    result = await svc.publish(approved, connector="hosted")
+    result = await svc.publish(approved, connector="hosted", tenant_id="t1")
     assert isinstance(result, PublishResult)
     assert result.connector == "hosted"
     assert result.published_url == "https://kb.example.com/b1/c1"
@@ -156,7 +156,7 @@ async def test_publish_blocked_before_approval() -> None:
     d = ContentDraft(id="c1", tenant_id="t1", brand_id="b1", title="T", body_markdown="x")
     # Never approved (status defaults to DRAFT) -> the gate blocks before any connector is touched.
     with pytest.raises(ApprovalError):
-        await svc.publish(d, connector="hosted")
+        await svc.publish(d, connector="hosted", tenant_id="t1")
 
 
 @pytest.mark.asyncio
@@ -166,7 +166,7 @@ async def test_publish_gate_runs_before_connector_lookup() -> None:
     svc = _service(passing=True)
     d = ContentDraft(id="c9", tenant_id="t1", brand_id="b1", title="T", body_markdown="x")
     with pytest.raises(ApprovalError):
-        await svc.publish(d, connector="no-such-connector")
+        await svc.publish(d, connector="no-such-connector", tenant_id="t1")
 
 
 def test_failing_guardrails_block_approval() -> None:
@@ -177,7 +177,7 @@ def test_failing_guardrails_block_approval() -> None:
     assert report.passed is False
     assert report.originality_ok is False  # plagiarism caught
     with pytest.raises(ApprovalError):
-        svc.approve(draft, report=report, role="editor")
+        svc.approve(draft, report=report, role="editor", tenant_id="t1")
 
 
 def test_clean_report_but_unauthorized_role_blocks_approval() -> None:
@@ -189,7 +189,7 @@ def test_clean_report_but_unauthorized_role_blocks_approval() -> None:
     )
     assert report.passed is True
     with pytest.raises(ApprovalError):
-        svc.approve(draft, report=report, role="viewer")
+        svc.approve(draft, report=report, role="viewer", tenant_id="t1")
 
 
 def test_generate_persists_asset_for_id_lookup() -> None:
@@ -199,7 +199,7 @@ def test_generate_persists_asset_for_id_lookup() -> None:
     draft, report = svc.generate(
         brand=_BRAND, prompt_text="best crm", facts=[], feature_profile=None
     )
-    got_draft, got_report = svc.get_asset(draft.id)
+    got_draft, got_report = svc.get_asset(tenant_id="t1", content_id=draft.id)
     assert got_draft.id == draft.id
     assert got_report.passed == report.passed
 
@@ -207,7 +207,18 @@ def test_generate_persists_asset_for_id_lookup() -> None:
 def test_get_asset_unknown_id_raises_lookup_error() -> None:
     svc = _service(passing=True)
     with pytest.raises(LookupError):
-        svc.get_asset("nope")
+        svc.get_asset(tenant_id="t1", content_id="nope")
+
+
+def test_get_asset_wrong_tenant_raises_lookup_error() -> None:
+    # A content id that exists, but under a different tenant, must 404 exactly like an unknown id
+    # -- never confirming to the caller that the id exists at all (no cross-tenant IDOR).
+    svc = _service(passing=True)
+    draft, _ = svc.generate(
+        brand=_BRAND, prompt_text="best crm", facts=[], feature_profile=None
+    )
+    with pytest.raises(LookupError):
+        svc.get_asset(tenant_id="t2", content_id=draft.id)
 
 
 def test_approve_records_transition_so_publish_sees_approved() -> None:
@@ -217,9 +228,32 @@ def test_approve_records_transition_so_publish_sees_approved() -> None:
     draft, report = svc.generate(
         brand=_BRAND, prompt_text="best crm", facts=[], feature_profile=None
     )
-    svc.approve(draft, report=report, role="editor")
-    stored_draft, _ = svc.get_asset(draft.id)
+    svc.approve(draft, report=report, role="editor", tenant_id="t1")
+    stored_draft, _ = svc.get_asset(tenant_id="t1", content_id=draft.id)
     assert stored_draft.status == ContentStatus.APPROVED
+
+
+def test_approve_wrong_tenant_raises_lookup_error() -> None:
+    # `approve` re-checks the tenant itself (defense in depth), not just the router's prior
+    # `get_asset` call -- a mismatched tenant_id is refused even if a caller somehow obtained the
+    # draft another way.
+    svc = _service(passing=True)
+    draft, report = svc.generate(
+        brand=_BRAND, prompt_text="best crm", facts=[], feature_profile=None
+    )
+    with pytest.raises(LookupError):
+        svc.approve(draft, report=report, role="editor", tenant_id="t2")
+
+
+@pytest.mark.asyncio
+async def test_publish_wrong_tenant_raises_lookup_error_regardless_of_status() -> None:
+    # The tenant check runs before `ensure_publishable`, so a cross-tenant caller gets the same
+    # LookupError (-> 404) no matter the draft's status -- never a status-dependent response that
+    # could hint the id exists under another tenant.
+    svc = _service(passing=True)
+    d = ContentDraft(id="c1", tenant_id="t1", brand_id="b1", title="T", body_markdown="x")
+    with pytest.raises(LookupError):
+        await svc.publish(d, connector="hosted", tenant_id="t2")
 
 
 def test_generate_returns_guardrail_report_type() -> None:
