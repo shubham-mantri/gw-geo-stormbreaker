@@ -39,19 +39,17 @@ async function copyToClipboard(text: string): Promise<void> {
 
 /**
  * Lead-capture install snippet (ui-spec §3.8): fetch + display the `<script>` tag from
- * `GET /lead-capture/snippet`, with a one-click copy button.
- *
- * Note: `lib/api.ts`'s `leadCaptureSnippet()` takes no `brandId` argument even though the backend
- * route requires one (see this task's CONCERNS) — `brandId` is accepted here anyway (for the query
- * key and the loading gate) so this component's call site matches the pattern of every other
- * Settings section and is a one-line fix once the client method gains the parameter.
+ * `GET /lead-capture/snippet?brand_id=`, with a one-click copy button. `brandId` is passed to the
+ * client (the backend requires the `brand_id` query param) and gates the query until a brand is
+ * selected.
  */
 export function SnippetInstall({ brandId }: SnippetInstallProps) {
   const [copied, setCopied] = useState(false);
 
   const snippetQuery = useQuery({
     queryKey: ["lead-capture-snippet", brandId],
-    queryFn: () => apiClient(getToken).leadCaptureSnippet(),
+    // Only runs when brandId !== null (enabled gate), so the non-null assertion is safe.
+    queryFn: () => apiClient(getToken).leadCaptureSnippet(brandId as string),
     enabled: brandId !== null,
   });
 
