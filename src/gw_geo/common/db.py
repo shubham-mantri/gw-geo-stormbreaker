@@ -316,6 +316,141 @@ class Membership(Base):
     role: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class FeatureModel(Base):
+    """A trained per-(tenant, brand, engine) ranking-model artifact (m3-design §6/§9-1).
+
+    Interpretable models (GBT default / logistic regression) are trained via an injected
+    `ModelBackend` (TRD/m3-design §8); this row is the persisted artifact metadata --
+    `feature_names`/`importances` back the `FeatureFactor` explanations surfaced in
+    recommendations, `metrics` holds eval scores (e.g. AUC). Tenant-scoped.
+    """
+
+    __tablename__ = "feature_model"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    engine: Mapped[str] = mapped_column(String, nullable=False)
+    model_type: Mapped[str] = mapped_column(String, nullable=False)
+    feature_names: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    importances: Mapped[list[float]] = mapped_column(JSON, default=list, nullable=False)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    trained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class ContentAsset(Base):
+    """A generated content draft/asset, on- or off-site (PRD §7 `content_asset`, m3-design §6).
+
+    `prompt_id` (the target prompt the content is shaped for) and `target_engine` are optional --
+    an asset may be authored speculatively ahead of a specific prompt/engine pairing, so neither is
+    a hard foreign key here (unlike `tenant_id`/`brand_id`). `status` moves through
+    draft -> pending_review -> approved -> published (or rejected) per the approval gate
+    (m3-design §9-2); `published_url`/`connector`/`published_at` fill in once publishing succeeds.
+    Tenant-scoped.
+    """
+
+    __tablename__ = "content_asset"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    type: Mapped[str] = mapped_column(String, nullable=False)
+    target_engine: Mapped[str | None] = mapped_column(String, nullable=True)
+    prompt_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    body_s3_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    features: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    schema_jsonld: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    published_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    connector: Mapped[str | None] = mapped_column(String, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class ContentGuardrailReport(Base):
+    """Audit trail for the white-hat content gate (PRD NG1, m3-design §9-2): one row per guardrail
+    run against a `content_asset`, recording each check's verdict plus the overall `passed` gate
+    used as the hard precondition for `approve()`/publish. Tenant-scoped.
+    """
+
+    __tablename__ = "content_guardrail_report"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    content_asset_id: Mapped[str] = mapped_column(
+        ForeignKey("content_asset.id"), index=True, nullable=False
+    )
+    originality_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    originality_score: Mapped[float] = mapped_column(Float, nullable=False)
+    claims_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    unverified_claims: Mapped[list[Any]] = mapped_column(JSON, default=list, nullable=False)
+    brand_voice_ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    brand_voice_score: Mapped[float] = mapped_column(Float, nullable=False)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class Opportunity(Base):
+    """A ranked visibility gap surfaced to the user (m3-design §6/§9-5), e.g. "absent on Gemini".
+
+    `source_gap` names the underlying gap category (e.g. "absence"); `est_impact` is the ranked
+    score driving `orchestration/opportunities.py` ordering; `status` moves open -> acted
+    (content/action spawned) or -> dismissed. Tenant-scoped.
+    """
+
+    __tablename__ = "opportunity"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    rationale: Mapped[str] = mapped_column(String, nullable=False)
+    engine: Mapped[str | None] = mapped_column(String, nullable=True)
+    est_impact: Mapped[float] = mapped_column(Float, nullable=False)
+    source_gap: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class BanditArm(Base):
+    """One (content_variant x channel) arm of the Thompson-sampling bandit (m3-design §9-4).
+
+    `alpha`/`beta` are the Beta-distribution posterior parameters updated by observed
+    `BanditReward`s; `pulls` counts selections. Tenant-scoped.
+    """
+
+    __tablename__ = "bandit_arm"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    content_variant: Mapped[str] = mapped_column(String, nullable=False)
+    channel: Mapped[str] = mapped_column(String, nullable=False)
+    alpha: Mapped[float] = mapped_column(Float, nullable=False)
+    beta: Mapped[float] = mapped_column(Float, nullable=False)
+    pulls: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class BanditReward(Base):
+    """One observed reward event feeding a `BanditArm`'s posterior (m3-design §9-4).
+
+    `source_snapshot_id` optionally points at the `VisibilitySnapshot` the reward (measurement
+    uplift) was derived from; kept as a plain reference (not a hard FK) since rewards may also
+    derive from other measurement sources. Tenant-scoped.
+    """
+
+    __tablename__ = "bandit_reward"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    arm_id: Mapped[str] = mapped_column(ForeignKey("bandit_arm.id"), index=True, nullable=False)
+    reward: Mapped[float] = mapped_column(Float, nullable=False)
+    source_snapshot_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
 class TenantScopedSession:
     """Wraps a `Session`, binding it to one `tenant_id` so cross-tenant reads/writes can't happen.
 
