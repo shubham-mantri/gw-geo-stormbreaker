@@ -8,7 +8,7 @@ via `TenantScopedSession` so cross-tenant reads/writes are impossible by constru
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, Query, mapped_column
 from sqlalchemy.orm import Session as SASession
 
@@ -449,6 +449,196 @@ class BanditReward(Base):
     reward: Mapped[float] = mapped_column(Float, nullable=False)
     source_snapshot_id: Mapped[str | None] = mapped_column(String, nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class SeedingChannel(Base):
+    """A supported off-site seeding channel (m4-design §2.2/§2.7), e.g. "reddit"/"g2"/"wikipedia" --
+    each mapped to a `SourceType`, a ToS ruleset id, and disclosure/UGC placement metadata.
+
+    SYSTEM-LEVEL: intentionally has no `tenant_id` -- the channel catalog is a global, versioned
+    reference table shared by every tenant, not owned by one. Documented exception to the per-row
+    `tenant_id` rule (same rationale as `DriftEvent`).
+    """
+
+    __tablename__ = "seeding_channel"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    source_type: Mapped[str] = mapped_column(String, nullable=False)
+    tos_ruleset_ref: Mapped[str] = mapped_column(String, nullable=False)
+    requires_disclosure: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    allows_ugc: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class ComplianceRule(Base):
+    """One white-hat compliance rule evaluated by the compliance engine's hard gate (PRD NG1,
+    m4-design §2.4/§2.7). `channel` is `"*"` for global invariants (e.g. `no_astroturf`) or a
+    channel name for platform-specific rules (e.g. `reddit_self_promo_ratio`) -- deliberately a
+    loose string, not a FK, since `"*"` would not satisfy one. `check_key` indexes the app-layer
+    check registry (named `check_key` rather than `check` to avoid the SQL `CHECK` keyword).
+
+    SYSTEM-LEVEL: the ruleset is global reference data, not tenant-owned -- same documented
+    exception as `DriftEvent`/`SeedingChannel`.
+    """
+
+    __tablename__ = "compliance_rule"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    channel: Mapped[str] = mapped_column(String, nullable=False)
+    code: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(String, nullable=False)
+    severity: Mapped[str] = mapped_column(String, nullable=False)
+    check_key: Mapped[str] = mapped_column(String, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class SeedingTask(Base):
+    """One off-site placement task moving through the human-in-the-loop workflow (m4-design
+    §2.5/§2.7): `todo -> briefed -> compliance_review -> ready_for_human -> placed ->
+    corroborated` (or `-> rejected` on a block-severity compliance failure).
+
+    `content_asset_id` is a loose, optional reference (not a hard FK -- mirrors
+    `ContentAsset.prompt_id`) since a task may be briefed without a pre-existing content asset;
+    `channel` likewise loosely references `seeding_channel.name` (app-validated), consistent with
+    how other cross-subsystem "name" references are kept soft elsewhere in this module.
+    `compliance_report` is written by `run_compliance()` and defaults to an empty dict before the
+    first compliance pass. Tenant-scoped.
+    """
+
+    __tablename__ = "seeding_task"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    content_asset_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    channel: Mapped[str] = mapped_column(String, nullable=False)
+    target_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    compliance_status: Mapped[str] = mapped_column(String, nullable=False)
+    compliance_report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    brief_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    placed_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    actor: Mapped[str | None] = mapped_column(String, nullable=True)
+    corroboration_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class RetrainJob(Base):
+    """One triggered retraining run for an engine's ranking model (m4-design §3.1/§2.7): a
+    breached `DriftEvent` with `retrain_flag=True` spawns exactly one job via the injected
+    `Retrainer` protocol (idempotent per `trigger_drift_event_id`).
+
+    SYSTEM-LEVEL: engine drift/retraining is a property of the engine, not any one tenant -- same
+    documented exception as `DriftEvent`, which this table's FK points back to.
+    """
+
+    __tablename__ = "retrain_job"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    model_engine: Mapped[str] = mapped_column(String, nullable=False)
+    trigger_drift_event_id: Mapped[str] = mapped_column(
+        ForeignKey("drift_event.id"), index=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    metrics_before: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    metrics_after: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    model_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EffortBanditArm(Base):
+    """One (channel, content_variant) arm of the UCB1/Thompson seeding-effort bandit (m4-design
+    §3.2/§2.7): `allocate_effort()` ranks arms by measured reward to distribute finite off-site
+    placement slots. `arm_key` is `f"{channel}:{variant}"`.
+
+    Named `EffortBanditArm`/`bandit_arm_effort` -- deliberately NOT `BanditArm`/`bandit_arm` -- to
+    avoid colliding with M3's `BanditArm` (`bandit_arm`), a *different* subsystem: the Thompson
+    content-variant bandit over (content_variant, channel) Beta-posterior (alpha/beta) rewards.
+    This is a distinct UCB1-style seeding-effort bandit keyed by a single `arm_key` with raw
+    pull/reward-sum/reward-sq-sum statistics. Tenant-scoped; unique per (tenant_id, brand_id,
+    arm_key).
+    """
+
+    __tablename__ = "bandit_arm_effort"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "brand_id", "arm_key", name="uq_bandit_arm_effort_tenant_brand_arm"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str] = mapped_column(ForeignKey("brand.id"), index=True, nullable=False)
+    arm_key: Mapped[str] = mapped_column(String, nullable=False)
+    pulls: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reward_sum: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    reward_sq_sum: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class BillingAccount(Base):
+    """A tenant's RaaS pricing plan (m4-design §4.2/§4.4): base fee + per-unit `usage_rates`
+    (`UsageKind` -> $/unit) plus an optional results-linked (RaaS) charge on attributed
+    leads/pipeline (`raas_basis` in {per_lead, pct_pipeline}, app-validated). Tenant-scoped.
+    """
+
+    __tablename__ = "billing_account"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    plan: Mapped[str] = mapped_column(String, nullable=False)
+    base_fee: Mapped[float] = mapped_column(Float, nullable=False)
+    usage_rates: Mapped[dict[str, float]] = mapped_column(JSON, default=dict, nullable=False)
+    raas_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    raas_basis: Mapped[str] = mapped_column(String, default="per_lead", nullable=False)
+    raas_rate: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    currency: Mapped[str] = mapped_column(String, default="USD", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class UsageEvent(Base):
+    """One billable usage record (m4-design §4.1/§4.4) -- a probe run, content generation, or
+    seeding placement; `record_usage()`/`meter_period()` write and roll these up per `UsageKind`.
+    `brand_id` is nullable for tenant-level usage not tied to one brand. Tenant-scoped.
+    """
+
+    __tablename__ = "usage_event"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    brand_id: Mapped[str | None] = mapped_column(ForeignKey("brand.id"), index=True, nullable=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String, nullable=False)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True, nullable=False
+    )
+    source_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class BillingInvoice(Base):
+    """One computed invoice for a billing period (m4-design §4.2/§4.4) -- the persisted form of
+    `compute_invoice()`'s `Invoice`: base fee + usage charges + RaaS charge on attributed results.
+    `status` tracks the invoice lifecycle (e.g. draft/finalized/paid; app-validated). Tenant-scoped.
+    """
+
+    __tablename__ = "billing_invoice"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
+    period_start: Mapped[str] = mapped_column(String, nullable=False)
+    period_end: Mapped[str] = mapped_column(String, nullable=False)
+    base_fee: Mapped[float] = mapped_column(Float, nullable=False)
+    usage_charges: Mapped[dict[str, float]] = mapped_column(JSON, default=dict, nullable=False)
+    raas_charge: Mapped[float] = mapped_column(Float, nullable=False)
+    attributed_leads: Mapped[int] = mapped_column(Integer, nullable=False)
+    attributed_pipeline_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    total: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class TenantScopedSession:
