@@ -1,0 +1,31 @@
+{
+  "id": "d3f4e5a6-7b8c-4a1d-9e2f-0123456789ab",
+  "model": "sonar",
+  "object": "chat.completion",
+  "created": 1735689600,
+  "citations": [
+    "https://www.g2.com/categories/crm",
+    "https://www.capterra.com/crm-software/",
+    "https://en.wikipedia.org/wiki/Customer_relationship_management",
+    "https://www.salesforce.com/crm/"
+  ],
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "For small-to-midsize businesses, HubSpot and Salesforce Essentials are the most frequently recommended CRMs [1][2]. HubSpot is praised for its free tier and fast onboarding, while Salesforce offers deeper customization at a higher price point. Zoho CRM is a lower-cost alternative worth considering for budget-conscious teams [3]. For a broader overview of what a CRM does, see the Wikipedia entry on customer relationship management [4]."
+      },
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 24,
+    "completion_tokens": 96,
+    "total_tokens": 120
+  }
+}
