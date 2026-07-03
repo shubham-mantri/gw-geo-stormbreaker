@@ -22,7 +22,12 @@ from gw_geo.content.gateway import (
     build_portkey_client,
     build_voice_scorer,
 )
-from gw_geo.content.generate import AnthropicLLMClient, PortkeyLLMClient, generate_draft
+from gw_geo.content.generate import (
+    _RESPONSE_SCHEMA,
+    AnthropicLLMClient,
+    PortkeyLLMClient,
+    generate_draft,
+)
 from gw_geo.content.guardrails.brand_voice import LLMVoiceScorer
 from gw_geo.content.guardrails.claims import LLMClaimExtractor
 from gw_geo.content.kb import OpenAIEmbeddingClient, PortkeyEmbeddingClient
@@ -39,10 +44,25 @@ def _portkey() -> PortkeyClient:
     return PortkeyClient(api_key="pk-test", config="pc-portke-0dd3de")
 
 
-def _chat_route(payload: dict[str, object]) -> respx.Route:
+def _chat_route(
+    payload: dict[str, object], *, name: str = "record_generated_content"
+) -> respx.Route:
+    # Portkey maps the OpenAI-style forced function tool to Anthropic tool-use, so a structured
+    # response comes back as a tool call whose `function.arguments` is a JSON *string*.
     return respx.post(f"{BASE}/chat/completions").mock(
         return_value=httpx.Response(
-            200, json={"choices": [{"message": {"content": json.dumps(payload)}}]}
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {"function": {"name": name, "arguments": json.dumps(payload)}}
+                            ]
+                        }
+                    }
+                ]
+            },
         )
     )
 
@@ -68,9 +88,18 @@ def test_portkey_llm_complete_with_schema_parses_structured_json() -> None:
         {"role": "system", "content": "you are a bot"},
         {"role": "user", "content": "write it"},
     ]
-    assert body["response_format"]["type"] == "json_schema"
-    assert body["response_format"]["json_schema"]["schema"] == schema
-    assert body["response_format"]["json_schema"]["strict"] is True
+    # Structured output via a forced OpenAI-style function tool (Portkey -> Anthropic tool-use),
+    # NOT response_format (which Anthropic strict structured-output 400s on a free-form object).
+    assert "response_format" not in body
+    tool = body["tools"][0]
+    assert tool["type"] == "function"
+    assert tool["function"]["name"] == "record_generated_content"
+    assert tool["function"]["parameters"] == schema  # the schema rides through as tool params
+    assert isinstance(tool["function"]["description"], str) and tool["function"]["description"]
+    assert body["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "record_generated_content"},
+    }
 
 
 @respx.mock
@@ -82,7 +111,11 @@ def test_portkey_llm_no_schema_still_returns_structured_dict() -> None:
     result = PortkeyLLMClient(_portkey()).complete(system="s", prompt="p")
     assert result == payload
     body = json.loads(route.calls.last.request.content)
-    assert body["response_format"]["type"] == "json_schema"  # response_format still sent
+    assert "response_format" not in body
+    # Falls back to the module _RESPONSE_SCHEMA -- whose free-form `schema_jsonld` object (no
+    # declared properties) is exactly what made response_format 400 -- carried as tool params.
+    assert body["tools"][0]["function"]["parameters"] == _RESPONSE_SCHEMA
+    assert body["tool_choice"]["function"]["name"] == "record_generated_content"
 
 
 @respx.mock
@@ -154,14 +187,17 @@ def test_direct_anthropic_llm_client_still_constructible() -> None:
 
 @respx.mock
 def test_llm_claim_extractor_routes_through_portkey() -> None:
-    route = _chat_route({"claims": ["Acme is SOC2 Type II certified"]})
+    route = _chat_route({"claims": ["Acme is SOC2 Type II certified"]}, name="record_claims")
     extractor = LLMClaimExtractor(portkey=_portkey(), model="claude-haiku-4-5-20251001")
     claims = extractor.extract_claims("Acme is SOC2 Type II certified. It is great.")
-    assert claims == ["Acme is SOC2 Type II certified"]
+    assert claims == ["Acme is SOC2 Type II certified"]  # parsed from tool_calls[0] arguments
     body = json.loads(route.calls.last.request.content)
     assert body["model"] == "claude-haiku-4-5-20251001"
     assert body["messages"][0]["role"] == "user"  # claim extractor uses no system turn
-    assert body["response_format"]["json_schema"]["name"] == "record_claims"
+    # Same tool-use path as the LLM client: forced function tool, not response_format.
+    assert "response_format" not in body
+    assert body["tools"][0]["function"]["name"] == "record_claims"
+    assert body["tool_choice"] == {"type": "function", "function": {"name": "record_claims"}}
 
 
 def test_llm_claim_extractor_direct_path_still_requires_key() -> None:
@@ -172,12 +208,14 @@ def test_llm_claim_extractor_direct_path_still_requires_key() -> None:
 
 @respx.mock
 def test_llm_voice_scorer_routes_through_portkey() -> None:
-    route = _chat_route({"score": 0.9, "violations": []})
+    route = _chat_route({"score": 0.9, "violations": []}, name="record_voice_score")
     scorer = LLMVoiceScorer(portkey=_portkey())
     result = scorer.score("some draft", {"tone": "friendly", "banned": ["synergy"]})
-    assert result == {"score": 0.9, "violations": []}
+    assert result == {"score": 0.9, "violations": []}  # parsed from tool_calls[0] arguments
     body = json.loads(route.calls.last.request.content)
-    assert body["response_format"]["json_schema"]["name"] == "record_voice_score"
+    assert "response_format" not in body
+    assert body["tools"][0]["function"]["name"] == "record_voice_score"
+    assert body["tool_choice"] == {"type": "function", "function": {"name": "record_voice_score"}}
 
 
 def test_llm_voice_scorer_direct_path_still_requires_key() -> None:

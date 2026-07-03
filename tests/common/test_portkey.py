@@ -75,6 +75,45 @@ def test_chat_completion_omits_response_format_when_none() -> None:
 
 
 @respx.mock
+def test_chat_completion_sends_tools_and_tool_choice_when_given() -> None:
+    # Structured output is now requested via OpenAI-style function calling (tools + forced
+    # tool_choice), which Portkey maps to Anthropic tool-use -- lenient about free-form object
+    # params -- instead of response_format (Anthropic strict structured-output, which 400s on a
+    # free-form object schema).
+    route = respx.post(f"{BASE}/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+    )
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": "record_x", "description": "d", "parameters": {"type": "object"}},
+        }
+    ]
+    tool_choice = {"type": "function", "function": {"name": "record_x"}}
+    _client().chat_completion(
+        model="m",
+        messages=[{"role": "user", "content": "x"}],
+        tools=tools,
+        tool_choice=tool_choice,
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["tools"] == tools
+    assert body["tool_choice"] == tool_choice
+    assert "response_format" not in body
+
+
+@respx.mock
+def test_chat_completion_omits_tools_and_tool_choice_when_none() -> None:
+    route = respx.post(f"{BASE}/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+    )
+    _client().chat_completion(model="m", messages=[{"role": "user", "content": "x"}])
+    body = json.loads(route.calls.last.request.content)
+    assert "tools" not in body
+    assert "tool_choice" not in body
+
+
+@respx.mock
 def test_chat_completion_sets_metadata_header_when_given() -> None:
     route = respx.post(f"{BASE}/chat/completions").mock(
         return_value=httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})

@@ -78,10 +78,13 @@ class LLMClaimExtractor:
     Two transports, same prompt + same parsed result (a list of claim strings): by default it calls
     the Claude Messages API directly via `httpx` (tool-use / `anthropic`-SDK-free); when an optional
     `PortkeyClient` is injected it instead sends the identical prompt through the Portkey gateway's
-    OpenAI-shaped `/chat/completions`, requesting the same schema via `response_format` and reading
-    the claims out of `choices[0].message.content`. Never called by the unit test suite (tests inject
-    a stub `ClaimExtractor` per `docs/trd.md` §12); the Portkey path is exercised in
-    `tests/content/test_gateway.py` against a mocked transport.
+    OpenAI-shaped `/chat/completions`, forcing the same schema via an OpenAI-style function tool
+    (`tools` + `tool_choice`) and reading the claims out of
+    `choices[0].message.tool_calls[0].function.arguments`. Function calling (mapped by Portkey to
+    Anthropic tool-use) is used rather than `response_format` for the same reason as the LLM client:
+    it maps to the provider's lenient tool-use, avoiding the strict structured-output failure class.
+    Never called by the unit test suite (tests inject a stub `ClaimExtractor` per `docs/trd.md` §12);
+    the Portkey path is exercised in `tests/content/test_gateway.py` against a mocked transport.
     """
 
     _API_URL = "https://api.anthropic.com/v1/messages"
@@ -109,17 +112,12 @@ class LLMClaimExtractor:
             payload = self._portkey.chat_completion(
                 model=self._model,
                 messages=[{"role": "user", "content": self._prompt(text)}],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": self._TOOL_NAME,
-                        "schema": self._input_schema(),
-                        "strict": True,
-                    },
-                },
+                tools=[self._function_tool()],
+                tool_choice={"type": "function", "function": {"name": self._TOOL_NAME}},
                 max_tokens=1024,
             )
-            routed: list[str] = json.loads(payload["choices"][0]["message"]["content"])["claims"]
+            arguments = payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+            routed: list[str] = json.loads(arguments)["claims"]
             return routed
 
         if not self._api_key:
@@ -159,6 +157,17 @@ class LLMClaimExtractor:
             "name": self._TOOL_NAME,
             "description": "Record the atomic factual claims made in a content draft.",
             "input_schema": self._input_schema(),
+        }
+
+    def _function_tool(self) -> dict[str, Any]:
+        """OpenAI-style function tool for the Portkey path (maps to Anthropic tool-use)."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self._TOOL_NAME,
+                "description": "Record the atomic factual claims made in a content draft.",
+                "parameters": self._input_schema(),
+            },
         }
 
     @staticmethod
