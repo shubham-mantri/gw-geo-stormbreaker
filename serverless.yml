@@ -53,5 +53,60 @@ functions:
     events:
       - schedule: cron(0 6 * * ? *)
 
+  run_adaptation:
+    # Continuous adaptation cycle (m4-design §3.3, docs/tasks/M4-T16-handlers-serverless.md):
+    # drift canary -> retrain trigger -> seeding-target discovery -> bandit-allocated seeding
+    # tasks, via `gw_geo.orchestration.scheduler.run_adaptation_cycle` (T15). Uses the same
+    # `build_runtime` wiring as `runMeasurement`/`run_drift` for the drift leg; the seeding
+    # workflow (T10) and retrain trigger (T12) are real, with two documented best-effort
+    # stand-ins for collaborators that have nowhere real to resolve to yet -- see
+    # `handlers/run_adaptation.py`'s module docstring: target discovery has no real per-domain
+    # `SourceMap` (M1's `citation_source_mix` answers a different, incompatible question), and
+    # the M3 ranking retrainer is not yet adapted to the `Retrainer` contract (a triggered
+    # retrain honestly fails rather than faking success).
+    #
+    # `run_adaptation_cycle` is scoped to one (tenant_id, brand_id) pair per call (T16 interface);
+    # this bare schedule has no way to enumerate every active tenant/brand itself. A real
+    # multi-tenant deploy needs a fan-out layer in front of this cron (a Step Functions Map state,
+    # or a thin dispatcher Lambda reading active tenants/brands and invoking this function once
+    # per pair) -- not built here, tracked as a follow-on alongside the two stand-ins above.
+    handler: gw_geo.handlers.run_adaptation.handler
+    environment:
+      # Same build_runtime inputs as run_drift (the drift leg of this cycle reuses that wiring
+      # verbatim), plus the bandit policy selection (T07) for effort allocation across targets.
+      GEO_DATABASE_URL: ${env:GEO_DATABASE_URL, ''}
+      GEO_S3_BUCKET: ${env:GEO_S3_BUCKET, ''}
+      GEO_PERPLEXITY_API_KEY: ${env:GEO_PERPLEXITY_API_KEY, ''}
+      GEO_OPENAI_API_KEY: ${env:GEO_OPENAI_API_KEY, ''}
+      GEO_ANTHROPIC_API_KEY: ${env:GEO_ANTHROPIC_API_KEY, ''}
+      GEO_GEMINI_API_KEY: ${env:GEO_GEMINI_API_KEY, ''}
+      GEO_COPILOT_API_KEY: ${env:GEO_COPILOT_API_KEY, ''}
+      GEO_DEEPSEEK_API_KEY: ${env:GEO_DEEPSEEK_API_KEY, ''}
+      GEO_PROXY_POOL_CONFIG_REF: ${env:GEO_PROXY_POOL_CONFIG_REF, ''}
+      GEO_ACCOUNT_POOL_CONFIG_REF: ${env:GEO_ACCOUNT_POOL_CONFIG_REF, ''}
+      GEO_DRIFT_THRESHOLD: ${env:GEO_DRIFT_THRESHOLD, '0.2'}
+      GEO_BANDIT_POLICY: ${env:GEO_BANDIT_POLICY, 'ucb1'}
+      GEO_BANDIT_EXPLORE_C: ${env:GEO_BANDIT_EXPLORE_C, '1.0'}
+    events:
+      # Daily, one hour after the drift canary (run_drift, 06:00 UTC) so a same-day breach can
+      # feed straight into this cycle's retrain/seeding pass.
+      - schedule: cron(0 7 * * ? *)
+
+  close_billing:
+    # Monthly billing period-close (m4-design §4.2/§4.4, docs/tasks/M4-T16-handlers-serverless.md):
+    # meters the closed period (T08), prices it (T09), and persists a `billing_invoice` row (T02)
+    # via `gw_geo.handlers.close_billing.handler`. `plan` is read from the tenant's real
+    # `billing_account` row; `attribution` is a documented $0 stand-in until a real M2
+    # `AttributionSource` adapter exists (see the handler module's docstring) -- RaaS is disabled
+    # by default (`raas_enabled=False`) until then regardless (PRD OQ4).
+    #
+    # Scoped to one `tenant_id` per call -- same fan-out caveat as `run_adaptation` above.
+    handler: gw_geo.handlers.close_billing.handler
+    environment:
+      GEO_DATABASE_URL: ${env:GEO_DATABASE_URL, ''}
+    events:
+      # Monthly, 03:00 UTC on the 1st -- closes the prior calendar month's usage period.
+      - schedule: cron(0 3 1 * ? *)
+
 # plugins: serverless-python-requirements, etc. — added in M0
 plugins: []
