@@ -18,6 +18,7 @@ exercised by tests.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Protocol
 
 from gw_geo.common.config import Settings
@@ -144,24 +145,35 @@ class PgVectorStore:
     """`VectorStore` backed by Postgres + the `pgvector` extension (TRD OT4's alternative to
     Pinecone).
 
-    A stub real backend, like `PineconeVectorStore`: talks to Postgres over the already-required
-    `psycopg` driver via raw SQL, so no separate `pgvector` Python package dependency is needed --
-    vectors are passed as pgvector's text literal format (`'[v1,v2,...]'::vector`) and ranked by
-    the `<=>` cosine-distance operator. Assumes a migration has already run
-    `CREATE EXTENSION IF NOT EXISTS vector` and created
-    `{table}(id TEXT PRIMARY KEY, embedding vector, meta JSONB)`; provisioning that schema is out
-    of scope here. Never exercised by the hermetic test suite (`tests/content/test_kb.py` injects
+    Talks to Postgres over the already-required `psycopg` driver via raw SQL, so no separate
+    `pgvector` Python package is needed -- vectors are passed as pgvector's text literal format
+    (`'[v1,v2,...]'::vector`) and ranked by the `<=>` cosine-distance operator. Requires the
+    `kb_fact_embedding` table + `vector` extension provisioned by migration `0006`.
+
+    **Brand-scoped:** one instance is bound to a single `brand_id`; every `query` filters
+    `WHERE brand_id = <this brand>` and every `upsert` stamps it, so the shared `kb_fact_embedding`
+    table can never leak one brand's facts into another brand's grounding (the tenant/brand
+    isolation guarantee). `build_vector_store` constructs one per brand, mirroring Pinecone's
+    per-brand `namespace`. Never exercised by the hermetic suite (`tests/content/test_kb.py` injects
     a fake `VectorStore`).
     """
 
-    def __init__(self, *, database_url: str, table: str = "kb_fact_embedding") -> None:
+    def __init__(
+        self, *, database_url: str, brand_id: str, table: str = "kb_fact_embedding"
+    ) -> None:
         self._database_url = database_url
+        self._brand_id = brand_id
         self._table = table
 
     def _connect(self) -> Any:
         import psycopg
 
-        return psycopg.connect(self._database_url)
+        # `psycopg.connect` wants a libpq URL (`postgresql://...`); strip SQLAlchemy's `+driver`
+        # (e.g. `postgresql+psycopg://`), which libpq does not understand.
+        libpq_url = re.sub(
+            r"^(postgresql|postgres)\+[a-z0-9]+://", r"\1://", self._database_url
+        )
+        return psycopg.connect(libpq_url)
 
     @staticmethod
     def _literal(vector: list[float]) -> str:
@@ -170,10 +182,11 @@ class PgVectorStore:
     def upsert(self, id: str, vector: list[float], meta: dict[str, Any]) -> None:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                f"INSERT INTO {self._table} (id, embedding, meta) "
-                "VALUES (%s, %s::vector, %s) ON CONFLICT (id) DO UPDATE "
-                "SET embedding = EXCLUDED.embedding, meta = EXCLUDED.meta",
-                (id, self._literal(vector), json.dumps(meta)),
+                f"INSERT INTO {self._table} (id, brand_id, embedding, meta) "
+                "VALUES (%s, %s, %s::vector, %s) ON CONFLICT (id) DO UPDATE "
+                "SET brand_id = EXCLUDED.brand_id, embedding = EXCLUDED.embedding, "
+                "meta = EXCLUDED.meta",
+                (id, self._brand_id, self._literal(vector), json.dumps(meta)),
             )
             conn.commit()
 
@@ -182,22 +195,26 @@ class PgVectorStore:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT id, 1 - (embedding <=> %s::vector) AS score, meta FROM {self._table} "
-                "ORDER BY embedding <=> %s::vector LIMIT %s",
-                (literal, literal, top_k),
+                "WHERE brand_id = %s ORDER BY embedding <=> %s::vector LIMIT %s",
+                (literal, self._brand_id, literal, top_k),
             )
             rows = cur.fetchall()
         return [(row[0], float(row[1]), dict(row[2])) for row in rows]
 
 
-def build_vector_store(settings: Settings) -> VectorStore:
-    """Build the real `VectorStore` selected by `settings.vector_store` (TRD OT4: `"pinecone"` |
-    `"pgvector"`, default `"pinecone"`). Not used by the hermetic test suite, which injects a fake
-    `VectorStore` directly into `KnowledgeBase`.
+def build_vector_store(settings: Settings, *, brand_id: str) -> VectorStore:
+    """Build the real, **brand-scoped** `VectorStore` selected by `settings.vector_store` (TRD OT4:
+    `"pinecone"` | `"pgvector"`). `brand_id` scopes the store to a single brand -- pgvector filters
+    every query on it, Pinecone uses it as the `namespace` -- so KB grounding can never cross a
+    brand boundary. Not used by the hermetic test suite, which injects a fake `VectorStore` directly
+    into `KnowledgeBase`.
     """
     if settings.vector_store == "pgvector":
-        return PgVectorStore(database_url=settings.database_url)
+        return PgVectorStore(database_url=settings.database_url, brand_id=brand_id)
     if settings.vector_store == "pinecone":
         return PineconeVectorStore(
-            api_key=settings.pinecone_api_key, index_name=settings.pinecone_index
+            api_key=settings.pinecone_api_key,
+            index_name=settings.pinecone_index,
+            namespace=brand_id,
         )
     raise ValueError(f"unknown vector_store setting: {settings.vector_store!r}")
