@@ -127,7 +127,9 @@ def handler(
     `_NullAttributionSource` (see module docstring).
 
     Persists a new `BillingInvoice` row (id via `uuid4().hex`) and returns `{"statusCode": 200,
-    "body": {"invoice_id": <str>, "total": <float>}}`.
+    "body": {"invoice_id": <str>, "total": <float>}}`. Idempotent per `(tenant_id, period_start,
+    period_end)`: if an invoice already exists for that period (e.g. a retried monthly cron), the
+    existing one is returned unchanged rather than a second draft being inserted.
     """
     tenant_id = event["tenant_id"]
     period_start = event["period_start"]
@@ -148,6 +150,25 @@ def handler(
         attribution = _NullAttributionSource()
 
     try:
+        existing = session.scalar(
+            select(BillingInvoice).where(
+                BillingInvoice.tenant_id == tenant_id,
+                BillingInvoice.period_start == period_start,
+                BillingInvoice.period_end == period_end,
+            )
+        )
+        if existing is not None:
+            # Idempotent: a retried monthly cron for an already-closed period returns the existing
+            # invoice rather than double-inserting a second draft for the same period.
+            logger.info(
+                "billing close tenant_id=%s period=%s..%s: invoice %s already exists; returning it",
+                tenant_id,
+                period_start,
+                period_end,
+                existing.id,
+            )
+            return {"statusCode": 200, "body": {"invoice_id": existing.id, "total": existing.total}}
+
         usage = meter_period(
             session, tenant_id=tenant_id, period_start=period_start, period_end=period_end
         )

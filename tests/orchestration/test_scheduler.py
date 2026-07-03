@@ -90,6 +90,22 @@ def _session() -> Session:
     return Session(engine)
 
 
+class _PreferBanditPolicy:
+    """Fake `BanditPolicy`: ranks channels by a fixed preference list (unknowns last), so a test
+    can prove `_order_targets_by_channel_rank` actually reordered targets under the policy."""
+
+    def __init__(self, preferred: list[str]) -> None:
+        self._preferred = preferred
+
+    def rank(self, arms: list) -> list[str]:
+        return sorted(
+            (arm.key for arm in arms),
+            key=lambda key: self._preferred.index(key)
+            if key in self._preferred
+            else len(self._preferred),
+        )
+
+
 def _reddit_target(*, priority: float = 0.6) -> SeedingTarget:
     return SeedingTarget(
         channel="reddit",
@@ -191,3 +207,40 @@ def test_budget_caps_tasks_spawned_below_targets_found() -> None:
     assert result.tasks_spawned == 1
     assert len(workflow.created) == 1
     assert workflow.created[0][0] == "reddit"  # higher-priority target wins the single slot
+
+
+def test_bandit_policy_reorders_targets_by_channel_rank() -> None:
+    # Covers the `bandit_policy is not None` branch of _order_targets_by_channel_rank: discovery
+    # order puts reddit first, but a policy preferring g2 flips the order the slots are spent in.
+    session = _session()
+    workflow = RecordingWorkflow(session)
+    targets = [
+        _reddit_target(priority=0.9),
+        SeedingTarget(
+            channel="g2",
+            source_type=SourceType.REVIEW_SITE,
+            domain="g2.com",
+            engine="perplexity",
+            gap_score=0.4,
+            priority=0.4,
+            rationale="gap",
+        ),
+    ]
+
+    result = run_adaptation_cycle(
+        session,
+        tenant_id="t1",
+        brand_id="b1",
+        since="a",
+        until="b",
+        drift_runner=ScriptedDriftRunner(),
+        retrain_trigger=ScriptedRetrainTrigger(),
+        discovery=ScriptedDiscovery(targets),
+        workflow=workflow,
+        bandit_policy=_PreferBanditPolicy(["g2", "reddit"]),
+        budget=2,
+        date="2026-07-02",
+    )
+
+    assert result.tasks_spawned == 2
+    assert [channel for channel, _ in workflow.created] == ["g2", "reddit"]

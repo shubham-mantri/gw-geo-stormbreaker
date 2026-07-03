@@ -4,6 +4,8 @@ injected `AttributionSource` + T09 `compute_invoice` into a dashboard-ready dict
 reads persisted `billing_invoice` rows, tenant-scoped, newest first.
 """
 
+from datetime import datetime, timezone
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -58,3 +60,20 @@ def test_invoice_history_newest_first():
     s.commit()
     hist = invoice_history(s, tenant_id="t1")
     assert [h["period_start"] for h in hist] == ["2026-06-01", "2026-05-01"]
+
+
+def test_invoice_history_is_deterministic_on_ties():
+    # fix 8: rows sharing period_start AND created_at must order deterministically -- the stable
+    # final tiebreaker is `id` ascending, so `total` (distinct per row) comes back i_a, i_b, i_c.
+    s = _session()
+    ts = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    for inv_id, total in (("i_c", 3.0), ("i_a", 1.0), ("i_b", 2.0)):
+        s.add(BillingInvoice(
+            id=inv_id, tenant_id="t1", period_start="2026-06-01", period_end="2026-07-01",
+            base_fee=0.0, usage_charges={}, raas_charge=0.0, attributed_leads=0,
+            attributed_pipeline_usd=0.0, total=total, status="draft", created_at=ts,
+        ))
+    s.commit()
+    hist = invoice_history(s, tenant_id="t1")
+    assert [h["total"] for h in hist] == [1.0, 2.0, 3.0]
+    assert invoice_history(s, tenant_id="t1") == hist  # repeatable

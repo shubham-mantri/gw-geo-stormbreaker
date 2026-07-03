@@ -30,7 +30,7 @@ def test_counts_distinct_independent_domains():
     assert n == 2       # reddit + g2; own_site excluded, you_pct==0 excluded
 
 
-def test_update_writes_count_to_task():
+def test_update_writes_count_to_task_and_advances_placed_to_corroborated():
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
     s = Session(eng)
@@ -39,4 +39,22 @@ def test_update_writes_count_to_task():
     s.commit()
     n = update_corroboration(s, FakeSourceMap(), tenant_id="t1", task_id="st1",
                              since="a", until="b")
-    assert n == 2 and s.get(SeedingTask, "st1").corroboration_count == 2
+    task = s.get(SeedingTask, "st1")
+    assert n == 2 and task.corroboration_count == 2
+    assert task.status == "corroborated"  # placed -> corroborated once corroboration_count > 0
+
+
+def test_update_does_not_change_status_of_non_placed_task():
+    # The placed -> corroborated advance is a no-op for a task not yet PLACED (e.g. still
+    # ready_for_human): the count is still written, but the status is left untouched.
+    eng = create_engine("sqlite://")
+    Base.metadata.create_all(eng)
+    s = Session(eng)
+    s.add(SeedingTask(id="st2", tenant_id="t1", brand_id="b1", channel="reddit",
+        status="ready_for_human", compliance_status="passed", corroboration_count=0))
+    s.commit()
+    n = update_corroboration(s, FakeSourceMap(), tenant_id="t1", task_id="st2",
+                             since="a", until="b")
+    task = s.get(SeedingTask, "st2")
+    assert n == 2 and task.corroboration_count == 2
+    assert task.status == "ready_for_human"  # unchanged: only a PLACED task advances

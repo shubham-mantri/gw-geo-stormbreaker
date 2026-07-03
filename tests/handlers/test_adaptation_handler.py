@@ -11,8 +11,10 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from gw_geo.common.config import Settings
 from gw_geo.common.db import Base
-from gw_geo.handlers.run_adaptation import handler
+from gw_geo.handlers.run_adaptation import _build_retrain_poller, handler
+from gw_geo.orchestration.retrain import RetrainTrigger
 
 
 class FakeRetrain:
@@ -86,6 +88,19 @@ def test_adaptation_handler_surfaces_full_cycle_result() -> None:
     assert out["statusCode"] == 200
     assert out["body"]["retrain_jobs"] == ["rj1"]
     assert any("retrain" in alert.lower() for alert in out["body"]["alerts"])
+
+
+def test_build_retrain_poller_honors_retrain_on_breach() -> None:
+    # fix 6: when retrain_on_breach is disabled, the production path builds a no-op poller (no
+    # RetrainTrigger built/polled); when enabled, it builds a real RetrainTrigger.
+    session = _session()
+
+    enabled = _build_retrain_poller(session, Settings(retrain_on_breach=True))
+    assert isinstance(enabled, RetrainTrigger)
+
+    disabled = _build_retrain_poller(session, Settings(retrain_on_breach=False))
+    assert not isinstance(disabled, RetrainTrigger)
+    assert disabled.poll() == []
 
 
 def test_adaptation_handler_defaults_date_when_omitted() -> None:

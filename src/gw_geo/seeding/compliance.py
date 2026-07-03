@@ -15,15 +15,22 @@ severity violations are recorded (visible to the human reviewer) but never flip 
 tests with no live posting whatsoever (`docs/trd.md` S12, m4-design.md conventions).
 
 Rules (`ComplianceRule`) are deliberately separated from checks (`CheckFn`): a rule is **data**
-(code, channel, severity, description, and a `check` key) so `default_ruleset()` can be seeded
-into the `compliance_rule` table (M4-T04) and have its `severity`/`active` state tuned by ops
-without a code change, while a check is **code** (a pure predicate function) registered once in
-`default_checks()`. `evaluate` always re-stamps the emitted `ComplianceViolation.rule_code`/
-`.severity` from the matched *rule*, not from whatever the check function happens to set on the
-`ComplianceViolation` it returns -- so a rule's severity is authoritative even when it has been
-edited in the database to reuse an existing check under different data (e.g. downgrading a rule
-from `block` to `warn` in `compliance_rule` actually changes gate behavior, rather than being
-silently ignored because a check function hardcoded `severity="block"`).
+(code, channel, severity, description, and a `check` key), while a check is **code** (a pure
+predicate function) registered once in `default_checks()`. `evaluate` always re-stamps the
+emitted `ComplianceViolation.rule_code`/`.severity` from the matched *rule*, not from whatever the
+check function happens to set on the `ComplianceViolation` it returns -- so the rule's severity is
+authoritative even for a check reused by another rule under different data (a rule carrying
+`severity="warn"` yields a warn violation even if its check hardcoded `"block"`).
+
+**The authoritative runtime ruleset is the code-defined `ComplianceEngine.default_ruleset()`** the
+caller passes to `ComplianceEngine(...)`; that -- not any database table -- is what the gate
+evaluates. `default_ruleset()` is *also* seeded into the `compliance_rule` table
+(`seeding.channels.seed_compliance_rules`, M4-T04), but that table is currently only a **mirror
+for future ops-tooling**: nothing reads it back to build the engine, so editing a row's
+`severity`/`active` there does **not** (yet) change runtime gate behavior. There is deliberately
+no `load_ruleset` DB reader -- building a white-hat hard gate from a possibly-empty/partial table
+could silently weaken it (fail-open), which this gate must never risk. Changing what the gate
+enforces today is therefore a code change to `default_ruleset()`, reviewed like any other.
 
 A rule that names a `check` key absent from the merged registry raises `ComplianceError` rather
 than silently skipping that rule -- a typo'd or stale `check_key` in a seeded `compliance_rule`
@@ -96,22 +103,57 @@ class ComplianceError(Exception):
 # Global (NG1) checks -- apply to every channel via ComplianceRule(channel="*", ...).
 # ---------------------------------------------------------------------------------------------
 
-_HIDDEN_OPACITY_ZERO_RE = re.compile(r"opacity\s*:\s*0(?:\.0+)?\b", re.IGNORECASE)
+# Zero opacity only: the trailing negative-lookahead stops `opacity:0.5`/`0.99` (visible) from
+# matching just the leading `0`. `opacity:0`, `opacity:0.0`, `opacity:0.000` all still match.
+_HIDDEN_OPACITY_ZERO_RE = re.compile(r"opacity\s*:\s*0(?:\.0+)?(?![.\d])", re.IGNORECASE)
 _HIDDEN_DISPLAY_NONE_RE = re.compile(r"display\s*:\s*none\b", re.IGNORECASE)
-_WHITE_TEXT_RE = re.compile(r"(?<![-\w])color\s*:\s*(#fff(?:fff)?|white)\b", re.IGNORECASE)
-_WHITE_BACKGROUND_RE = re.compile(
-    r"background(?:-color)?\s*:\s*(#fff(?:fff)?|white)\b", re.IGNORECASE
+_HIDDEN_VISIBILITY_RE = re.compile(r"visibility\s*:\s*hidden\b", re.IGNORECASE)
+# Zero font-size (with or without a unit), same zero-only lookahead as opacity above.
+_HIDDEN_FONT_SIZE_ZERO_RE = re.compile(
+    r"font-size\s*:\s*0(?:\.0+)?\s*(?:px|em|rem|pt|%)?(?![.\d])", re.IGNORECASE
+)
+# Any negative text-indent is the classic off-screen text-hiding trick.
+_HIDDEN_TEXT_INDENT_RE = re.compile(r"text-indent\s*:\s*-\s*\d", re.IGNORECASE)
+# A large negative left/top offset (>= 3 digits, e.g. `left:-9999px`) pushes content off-screen.
+_HIDDEN_OFFSCREEN_RE = re.compile(r"(?:left|top)\s*:\s*-\s*\d{3,}", re.IGNORECASE)
+# White/near-white text is suspicious on its own (no white-background declaration required):
+# near-white hex (#eee..#fff / #eeeeee..#ffffff incl. #fefefe), literal `white`, or an rgb() with
+# every channel in 240..255.
+_WHITE_TEXT_RE = re.compile(
+    r"(?<![-\w])color\s*:\s*(?:"
+    r"#(?:[ef]{3}|[ef]{6})\b"
+    r"|white\b"
+    r"|rgb\(\s*2(?:4\d|5[0-5])\s*,\s*2(?:4\d|5[0-5])\s*,\s*2(?:4\d|5[0-5])\s*\)"
+    r")",
+    re.IGNORECASE,
 )
 _STUFFING_WORD_RE = re.compile(r"[a-zA-Z]{3,}")
 _STUFFING_MIN_COUNT = 5
 _STUFFING_MIN_RATIO = 0.3
 
+# LLM-crawler prompt-injection phrasings. Verbose mode for readability; every alternative pins a
+# concrete target (an instruction/override verb + a "previous/above"-type anchor, an explicit
+# "new instructions:" block, a system-prompt leak, a role reassignment, or an AI-persona lead-in)
+# so benign prose is not swept up.
 _PROMPT_INJECTION_RE = re.compile(
-    r"ignore\s+(all\s+)?(the\s+)?(previous|prior|above)\s+instructions"
-    r"|disregard\s+(all\s+)?(the\s+)?(previous|prior|above)\s+instructions"
-    r"|system\s*prompt\s*:"
-    r"|you\s+are\s+now\s+(a|an)\b",
-    re.IGNORECASE,
+    r"""
+      # ignore/disregard/forget/override/discard [all|the|your|...] previous/above/earlier ...
+      (?:ignore|disregard|forget|override|discard)\s+
+        (?:(?:all|everything|any|the|these|those|your|of)\s+){0,3}
+        (?:previous|prior|earlier|preceding|foregoing|above)\b
+    | # same verbs targeting the instructions/prompt/context directly (no "previous" needed)
+      (?:ignore|disregard|override|discard)\s+
+        (?:(?:all|everything|any|the|these|those|your|of)\s+){0,3}
+        (?:instructions?|prompts?|context|directives?|rules?)\b
+    | forget\s+everything\b                       # "forget everything (you were told/above)"
+    | \bnew\s+instructions?\s*:                    # explicit injected instruction block
+    | \bupdated\s+instructions?\s*:
+    | system\s*prompt\s*:                          # system-prompt leak / override
+    | you\s+are\s+now\s+(?:a|an)\b                  # role reassignment
+    | as\s+an?\s+(?:ai\b|a\.i\.|artificial\s+intelligence|language\s+model
+        |large\s+language\s+model|llm\b)           # "As an AI assistant, you should ..."
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
 
 _DISCLOSURE_REQUIRED_CHANNELS = frozenset(
@@ -150,14 +192,23 @@ def _no_astroturf(proposal: PlacementProposal) -> ComplianceViolation | None:
 
 def _no_hidden_text(proposal: PlacementProposal) -> ComplianceViolation | None:
     body = proposal.body
-    white_on_white = bool(_WHITE_TEXT_RE.search(body) and _WHITE_BACKGROUND_RE.search(body))
     reasons = []
     if _HIDDEN_OPACITY_ZERO_RE.search(body):
         reasons.append("zero-opacity styling")
-    if white_on_white:
-        reasons.append("white-on-white styling")
+    if _WHITE_TEXT_RE.search(body):
+        # White/near-white text is flagged on its own -- it need not be paired with an explicit
+        # white background to be an invisible-text technique.
+        reasons.append("white/near-white text")
     if _HIDDEN_DISPLAY_NONE_RE.search(body):
         reasons.append("display:none styling")
+    if _HIDDEN_VISIBILITY_RE.search(body):
+        reasons.append("visibility:hidden styling")
+    if _HIDDEN_FONT_SIZE_ZERO_RE.search(body):
+        reasons.append("zero font-size styling")
+    if _HIDDEN_TEXT_INDENT_RE.search(body):
+        reasons.append("negative text-indent (off-screen) styling")
+    if _HIDDEN_OFFSCREEN_RE.search(body):
+        reasons.append("off-screen positioning")
     if _has_keyword_stuffing(body):
         reasons.append("excessive keyword stuffing")
     if not reasons:
@@ -284,10 +335,13 @@ class ComplianceEngine:
 
     @staticmethod
     def default_ruleset() -> list[ComplianceRule]:
-        """The global (NG1) + representative per-platform ruleset -- data, not code.
+        """The global (NG1) + representative per-platform ruleset -- the **authoritative** gate.
 
-        Seedable verbatim into `compliance_rule` (M4-T04); ops can retune `severity`/`active`
-        per row later without touching this module.
+        This is what `ComplianceEngine(...)` callers evaluate against at runtime. It is also seeded
+        verbatim into `compliance_rule` (M4-T04), but that table is only a mirror for future
+        ops-tooling -- nothing reads it back to build the engine yet, so tuning a row there does
+        not change runtime behavior (see this module's docstring). Changing the gate today means
+        editing this method.
         """
         return [
             # --- Global white-hat invariants (PRD NG1) -- every channel. ---

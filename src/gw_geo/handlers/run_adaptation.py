@@ -26,13 +26,16 @@ so this handler's only job is to build those collaborators two ways:
     dict would silently "work" (it would just always resolve to zero targets, since
     `discover_targets` reads a `"sources"` key no such dict has) while *looking* wired, which is
     worse than being explicit, so `_unwired_discovery` just returns no targets directly.
-  - `retrain_trigger` is a **real** `orchestration.retrain.RetrainTrigger` -- all of its job
-    bookkeeping/idempotency runs for real against the database -- but its injected `Retrainer`
-    (satisfied in production by the M3 ranking trainer) is not yet adapted to the
-    `Retrainer.retrain(*, engine) -> {"model_ref", "metrics"}` contract this trigger expects.
-    `_UnwiredRetrainer.retrain` raises, which `RetrainTrigger.on_breach` (T12) already turns into
-    an honest `"failed"` job rather than a silently faked success -- exactly the standing
-    operator-facing signal that method's own docstring describes for a failing retrainer.
+  - `retrain_trigger` is gated on `settings.retrain_on_breach` (m4-design §3.1) by
+    `_build_retrain_poller`: when disabled it is a `_NoRetrainPoller` (the cycle skips building/
+    polling any trigger); when enabled (default) it is a **real**
+    `orchestration.retrain.RetrainTrigger` -- all of its job bookkeeping/idempotency runs for real
+    against the database -- but its injected `Retrainer` (satisfied in production by the M3 ranking
+    trainer) is not yet adapted to the `Retrainer.retrain(*, engine) -> {"model_ref", "metrics"}`
+    contract this trigger expects. `_UnwiredRetrainer.retrain` raises, which
+    `RetrainTrigger.on_breach` (T12) already turns into an honest `"failed"` job rather than a
+    silently faked success -- exactly the standing operator-facing signal that method's own
+    docstring describes for a failing retrainer.
 
 Both stand-ins, and the per-(tenant, brand) scheduling gap they sit next to (a bare EventBridge
 cron cannot itself enumerate every tenant/brand -- see `serverless.yml`), are tracked there as
@@ -54,7 +57,7 @@ from gw_geo.common.wiring import build_runtime
 from gw_geo.orchestration.bandit import BanditPolicy, ThompsonPolicy, UCB1Policy
 from gw_geo.orchestration.drift import DriftResult, run_drift_canary
 from gw_geo.orchestration.retrain import RetrainTrigger
-from gw_geo.orchestration.scheduler import run_adaptation_cycle
+from gw_geo.orchestration.scheduler import RetrainPoller, run_adaptation_cycle
 from gw_geo.seeding.compliance import ComplianceEngine
 from gw_geo.seeding.discovery import SeedingTarget
 from gw_geo.seeding.workflow import SeedingWorkflow
@@ -91,6 +94,31 @@ def _unwired_discovery() -> list[SeedingTarget]:
         "adaptation cycle: no SourceMap wired yet for target discovery; reporting 0 targets"
     )
     return []
+
+
+class _NoRetrainPoller:
+    """No-op `RetrainPoller` for when `settings.retrain_on_breach` is disabled.
+
+    Selected by `_build_retrain_poller` when retraining-on-breach is turned off, so the adaptation
+    cycle still runs its drift/discovery/placement steps but never builds or polls a
+    `RetrainTrigger`: `poll()` reports no jobs.
+    """
+
+    def poll(self) -> list[Any]:
+        return []
+
+
+def _build_retrain_poller(session: Session, settings: Settings) -> RetrainPoller:
+    """The production retrain poller, gated on `settings.retrain_on_breach` (m4-design §3.1).
+
+    Enabled (the default): a real `orchestration.retrain.RetrainTrigger` over the (still-unwired,
+    see module docstring) M3 retrainer. Disabled: a `_NoRetrainPoller`, so the cycle skips
+    building/polling the trigger entirely -- the config flag is honored rather than ignored.
+    """
+    if not settings.retrain_on_breach:
+        logger.info("adaptation cycle: retrain_on_breach disabled; skipping retrain trigger")
+        return _NoRetrainPoller()
+    return RetrainTrigger(session, retrainer=_UnwiredRetrainer())
 
 
 def _build_bandit_policy(settings: Settings) -> BanditPolicy:
@@ -163,7 +191,7 @@ def handler(
             since=since,
             until=until,
             drift_runner=_drift_runner,
-            retrain_trigger=RetrainTrigger(session, retrainer=_UnwiredRetrainer()),
+            retrain_trigger=_build_retrain_poller(session, settings),
             discovery=_unwired_discovery,
             workflow=SeedingWorkflow(
                 session, tenant_id, ComplianceEngine(ComplianceEngine.default_ruleset())

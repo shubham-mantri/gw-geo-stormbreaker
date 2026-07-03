@@ -75,6 +75,20 @@ def test_billing_handler_prices_usage_and_raas_into_persisted_invoice() -> None:
     assert out["body"]["total"] == 200.0 + 5.0 + 50.0
 
 
+def test_billing_handler_is_idempotent_per_period() -> None:
+    # A retried monthly cron must not double-insert a draft invoice for the same period.
+    session = _session()
+    plan = PricingPlan(plan="growth", base_fee=500.0, usage_rates={})
+    event = {"tenant_id": "t1", "period_start": "2026-06-01", "period_end": "2026-07-01"}
+
+    out1 = handler(event, deps={"session": session, "plan": plan, "attribution": FakeAttribution()})
+    out2 = handler(event, deps={"session": session, "plan": plan, "attribution": FakeAttribution()})
+
+    assert session.query(BillingInvoice).count() == 1
+    assert out1["body"]["invoice_id"] == out2["body"]["invoice_id"]
+    assert out2["statusCode"] == 200
+
+
 def test_billing_handler_scopes_usage_by_tenant_and_period() -> None:
     session = _session()
     record_usage(
