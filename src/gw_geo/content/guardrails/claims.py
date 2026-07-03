@@ -19,11 +19,13 @@ suite.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Protocol
 
 import httpx
 
+from gw_geo.common.portkey import PortkeyClient
 from gw_geo.content.kb import KnowledgeBase
 
 
@@ -71,12 +73,15 @@ def _is_grounded(claim: str, *, kb: KnowledgeBase, sim_threshold: float) -> bool
 
 
 class LLMClaimExtractor:
-    """`ClaimExtractor` backed by the Claude Messages API in tool-use (JSON-mode) mode.
+    """`ClaimExtractor` backed by an LLM in structured-output (JSON) mode.
 
-    Never called by the unit test suite (tests inject a stub `ClaimExtractor` per `docs/trd.md`
-    §12 -- no live LLM calls in CI); this is the real implementation used by the content pipeline,
-    mirroring `gw_geo.content.guardrails.brand_voice.LLMVoiceScorer`. Uses `httpx` directly against
-    the documented Messages API (no `anthropic` SDK dependency).
+    Two transports, same prompt + same parsed result (a list of claim strings): by default it calls
+    the Claude Messages API directly via `httpx` (tool-use / `anthropic`-SDK-free); when an optional
+    `PortkeyClient` is injected it instead sends the identical prompt through the Portkey gateway's
+    OpenAI-shaped `/chat/completions`, requesting the same schema via `response_format` and reading
+    the claims out of `choices[0].message.content`. Never called by the unit test suite (tests inject
+    a stub `ClaimExtractor` per `docs/trd.md` §12); the Portkey path is exercised in
+    `tests/content/test_gateway.py` against a mocked transport.
     """
 
     _API_URL = "https://api.anthropic.com/v1/messages"
@@ -90,14 +95,33 @@ class LLMClaimExtractor:
         *,
         model: str | None = None,
         timeout: float = 30.0,
+        portkey: PortkeyClient | None = None,
     ) -> None:
         self._api_key = (
             api_key if api_key is not None else os.environ.get("GEO_ANTHROPIC_API_KEY", "")
         )
         self._model = model or self._DEFAULT_MODEL
         self._timeout = timeout
+        self._portkey = portkey
 
     def extract_claims(self, text: str) -> list[str]:
+        if self._portkey is not None:
+            payload = self._portkey.chat_completion(
+                model=self._model,
+                messages=[{"role": "user", "content": self._prompt(text)}],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": self._TOOL_NAME,
+                        "schema": self._input_schema(),
+                        "strict": True,
+                    },
+                },
+                max_tokens=1024,
+            )
+            routed: list[str] = json.loads(payload["choices"][0]["message"]["content"])["claims"]
+            return routed
+
         if not self._api_key:
             raise RuntimeError(
                 "LLMClaimExtractor requires an Anthropic API key "
@@ -134,20 +158,24 @@ class LLMClaimExtractor:
         return {
             "name": self._TOOL_NAME,
             "description": "Record the atomic factual claims made in a content draft.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "claims": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Every atomic, checkable factual claim in the draft "
-                        "(a stat, certification, pricing detail, or similar assertion), each "
-                        "given as a standalone string taken verbatim from the text. Empty if "
-                        "the draft makes no factual claims.",
-                    },
+            "input_schema": self._input_schema(),
+        }
+
+    @staticmethod
+    def _input_schema() -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "claims": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Every atomic, checkable factual claim in the draft "
+                    "(a stat, certification, pricing detail, or similar assertion), each "
+                    "given as a standalone string taken verbatim from the text. Empty if "
+                    "the draft makes no factual claims.",
                 },
-                "required": ["claims"],
             },
+            "required": ["claims"],
         }
 
     @staticmethod

@@ -11,10 +11,13 @@ unit test suite.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Protocol
 
 import httpx
+
+from gw_geo.common.portkey import PortkeyClient
 
 
 class VoiceScorer(Protocol):
@@ -41,13 +44,15 @@ def check_brand_voice(
 
 
 class LLMVoiceScorer:
-    """`VoiceScorer` backed by the Claude Messages API in tool-use (JSON-mode) mode.
+    """`VoiceScorer` backed by an LLM in structured-output (JSON) mode.
 
-    Never called by the unit test suite (tests inject a stub `VoiceScorer` per
-    `docs/trd.md` §12 -- no live LLM calls in CI); this is the real implementation used by the
-    content pipeline. Uses `httpx` directly against the documented Messages API (no `anthropic`
-    SDK dependency), matching the established pattern in
-    `gw_geo.measurement.parse.ClaudeExtractor`.
+    Two transports, same prompt + same parsed `{"score", "violations"}` result: by default it calls
+    the Claude Messages API directly via `httpx` (tool-use / `anthropic`-SDK-free); when an optional
+    `PortkeyClient` is injected it instead sends the identical prompt through the Portkey gateway's
+    OpenAI-shaped `/chat/completions`, requesting the same schema via `response_format` and reading
+    the score out of `choices[0].message.content`. Never called by the unit test suite (tests inject
+    a stub `VoiceScorer` per `docs/trd.md` §12); the Portkey path is exercised in
+    `tests/content/test_gateway.py` against a mocked transport.
     """
 
     _API_URL = "https://api.anthropic.com/v1/messages"
@@ -61,14 +66,33 @@ class LLMVoiceScorer:
         *,
         model: str | None = None,
         timeout: float = 30.0,
+        portkey: PortkeyClient | None = None,
     ) -> None:
         self._api_key = (
             api_key if api_key is not None else os.environ.get("GEO_ANTHROPIC_API_KEY", "")
         )
         self._model = model or self._DEFAULT_MODEL
         self._timeout = timeout
+        self._portkey = portkey
 
     def score(self, text: str, voice_profile: dict[str, Any]) -> dict[str, Any]:
+        if self._portkey is not None:
+            payload = self._portkey.chat_completion(
+                model=self._model,
+                messages=[{"role": "user", "content": self._prompt(text, voice_profile)}],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": self._TOOL_NAME,
+                        "schema": self._input_schema(),
+                        "strict": True,
+                    },
+                },
+                max_tokens=1024,
+            )
+            routed: dict[str, Any] = json.loads(payload["choices"][0]["message"]["content"])
+            return routed
+
         if not self._api_key:
             raise RuntimeError(
                 "LLMVoiceScorer requires an Anthropic API key "
@@ -105,23 +129,27 @@ class LLMVoiceScorer:
         return {
             "name": self._TOOL_NAME,
             "description": "Record the brand-voice conformance score for a draft.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "score": {
-                        "type": "number",
-                        "description": "Conformance to the brand voice profile, from 0.0 "
-                        "(not at all on-voice) to 1.0 (perfect conformance).",
-                    },
-                    "violations": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Specific voice violations found (e.g. a banned term, "
-                        "a tone mismatch, off-brand phrasing). Empty if fully on-voice.",
-                    },
+            "input_schema": self._input_schema(),
+        }
+
+    @staticmethod
+    def _input_schema() -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "score": {
+                    "type": "number",
+                    "description": "Conformance to the brand voice profile, from 0.0 "
+                    "(not at all on-voice) to 1.0 (perfect conformance).",
                 },
-                "required": ["score", "violations"],
+                "violations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific voice violations found (e.g. a banned term, "
+                    "a tone mismatch, off-brand phrasing). Empty if fully on-voice.",
+                },
             },
+            "required": ["score", "violations"],
         }
 
     @staticmethod

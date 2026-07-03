@@ -19,6 +19,7 @@ never exercised by the unit test suite.
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from typing import Any, Protocol
@@ -27,6 +28,7 @@ from uuid import uuid4
 import httpx
 
 from gw_geo.common.models import Brand, ContentDraft, ContentStatus, Fact, RankingReport
+from gw_geo.common.portkey import PortkeyClient
 
 # --------------------------------------------------------------------------------------------
 # LLMClient protocol + build_generation_prompt() / generate_draft()
@@ -254,4 +256,66 @@ class AnthropicLLMClient:
         }
 
 
-__all__ = ["AnthropicLLMClient", "LLMClient", "build_generation_prompt", "generate_draft"]
+# --------------------------------------------------------------------------------------------
+# PortkeyLLMClient -- LLMClient routed through the Portkey gateway (config-selected in production)
+# --------------------------------------------------------------------------------------------
+
+
+class PortkeyLLMClient:
+    """`LLMClient` backed by the Portkey gateway's OpenAI-shaped `/chat/completions` endpoint.
+
+    Matches `AnthropicLLMClient.complete`'s return contract exactly: it always returns the
+    structured `{"title", "body_markdown", "schema_jsonld"}` dict. `AnthropicLLMClient` forces a
+    tool call whose `input_schema` defaults to `_RESPONSE_SCHEMA` when `schema is None`; this client
+    mirrors that by defaulting the OpenAI `response_format` json_schema to `_RESPONSE_SCHEMA` in the
+    same no-schema case, then `json.loads`-ing `choices[0].message.content` -- so both backends
+    return the identical structured shape and `generate_draft` cannot tell them apart. Provider
+    selection (which Claude model actually serves the request) lives in the Portkey Config; only the
+    native model slug is sent here. Never exercised against a live gateway (tests mock the transport).
+    """
+
+    _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+    _SCHEMA_NAME = "record_generated_content"
+
+    def __init__(
+        self,
+        client: PortkeyClient,
+        *,
+        model: str | None = None,
+        max_tokens: int = 4096,
+    ) -> None:
+        self._client = client
+        self._model = model or self._DEFAULT_MODEL
+        self._max_tokens = max_tokens
+
+    def complete(
+        self, *, system: str, prompt: str, schema: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        effective_schema = schema if schema is not None else _RESPONSE_SCHEMA
+        payload = self._client.chat_completion(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": self._SCHEMA_NAME,
+                    "schema": effective_schema,
+                    "strict": True,
+                },
+            },
+            max_tokens=self._max_tokens,
+        )
+        result: dict[str, Any] = json.loads(payload["choices"][0]["message"]["content"])
+        return result
+
+
+__all__ = [
+    "AnthropicLLMClient",
+    "LLMClient",
+    "PortkeyLLMClient",
+    "build_generation_prompt",
+    "generate_draft",
+]
