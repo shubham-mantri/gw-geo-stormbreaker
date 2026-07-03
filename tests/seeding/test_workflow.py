@@ -73,3 +73,52 @@ def test_illegal_transition_raises():
                          disclosure_text="Disclosure: I work at Acme.", format_notes="n/a")
     with pytest.raises(IllegalTransitionError):
         wf.attach_brief(tid, brief)  # already PLACED -- attach_brief is now illegal
+
+
+def test_run_compliance_rejects_channel_substitution_attack():
+    """Channel-substitution bypass (PRD NG1): a task created on `wikipedia` but reviewed with a
+    `pr_wire` proposal (the one channel needing no disclosure) would dodge wikipedia's
+    `disclosure_required` + `wikipedia_no_paid_self_edit` rules and reach a green report. The gate
+    must refuse to evaluate a proposal whose channel differs from the task's -- and the task must
+    never reach PLACED.
+    """
+    wf, s = _wf()
+    tid = wf.create(brand_id="b1", channel="wikipedia")
+    sneaky = PlacementProposal(channel="pr_wire", body="Acme is the leading vendor.",
+                               disclosure_text="", is_paid=True, author_is_real=True)
+    with pytest.raises(ComplianceError):
+        wf.run_compliance(tid, sneaky)
+    assert s.get(SeedingTask, tid).status == SeedingStatus.TODO  # never advanced
+    with pytest.raises(ComplianceError):
+        wf.mark_placed(tid, placed_url="https://en.wikipedia.org/wiki/Acme", actor="bot")
+
+
+def test_paid_undisclosed_wikipedia_is_blocked_not_placed():
+    """The honest form of the same scenario: submitted on its real channel, a paid + undisclosed
+    wikipedia placement is block-severity, gets `rejected`, and `mark_placed` refuses it.
+    """
+    wf, s = _wf()
+    tid = wf.create(brand_id="b1", channel="wikipedia")
+    proposal = PlacementProposal(channel="wikipedia", body="Acme is the leading vendor.",
+                                 disclosure_text="", is_paid=True, author_is_real=True)
+    rep = wf.run_compliance(tid, proposal)
+    assert rep.passed is False
+    assert s.get(SeedingTask, tid).status == SeedingStatus.REJECTED
+    with pytest.raises(ComplianceError):
+        wf.mark_placed(tid, placed_url="https://en.wikipedia.org/wiki/Acme", actor="bot")
+
+
+def test_mark_placed_rejects_stored_report_channel_mismatch():
+    """Defense-in-depth: even if a passing report for a *different* channel were somehow persisted
+    with status `ready_for_human`, `mark_placed` must refuse it (the stored report's channel must
+    match the task's channel).
+    """
+    wf, s = _wf()
+    tid = wf.create(brand_id="b1", channel="wikipedia")
+    task = s.get(SeedingTask, tid)
+    task.status = SeedingStatus.READY_FOR_HUMAN.value
+    task.compliance_status = "passed"
+    task.compliance_report = {"channel": "pr_wire", "passed": True, "violations": []}
+    s.commit()
+    with pytest.raises(ComplianceError):
+        wf.mark_placed(tid, placed_url="https://en.wikipedia.org/wiki/Acme", actor="bot")

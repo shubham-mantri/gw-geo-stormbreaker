@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from gw_geo.common.db import SeedingTask
 from gw_geo.seeding.discovery import SourceMap
+from gw_geo.seeding.workflow import SeedingStatus
 
 _OWN_SITE = "own_site"
 
@@ -86,11 +87,19 @@ def update_corroboration(
     is durable for a subsequent read (e.g. the seeding tracker or a fresh session), mirroring
     `measurement/feed.build_rollup`'s same commit-before-return contract for a recomputed,
     persisted derived value.
+
+    Also advances the workflow's terminal `placed -> corroborated` transition (m4-design.md S2.5):
+    once at least one independent domain corroborates the brand, a `placed` task moves to
+    `corroborated`. This is a no-op for a task in any other status (e.g. still `ready_for_human`,
+    or already `corroborated`): only a `placed` task advances, and the count is still written
+    regardless.
     """
     task = _get_task(session, tenant_id=tenant_id, task_id=task_id)
     count = corroboration_count(
         source_map, tenant_id=tenant_id, brand_id=task.brand_id, since=since, until=until
     )
     task.corroboration_count = count
+    if count > 0 and task.status == SeedingStatus.PLACED.value:
+        task.status = SeedingStatus.CORROBORATED.value
     session.commit()
     return count

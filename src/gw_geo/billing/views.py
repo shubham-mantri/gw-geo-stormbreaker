@@ -64,11 +64,20 @@ def billing_summary(
 def invoice_history(
     session: Session, *, tenant_id: str, limit: int = 12
 ) -> list[dict[str, Any]]:
-    """The tenant's persisted `billing_invoice` rows, newest period first, capped at `limit`."""
+    """The tenant's persisted `billing_invoice` rows, newest period first, capped at `limit`.
+
+    Ordered by `period_start` desc, then `created_at` desc, then `id` as a stable final tiebreaker
+    so rows sharing a period (e.g. a re-issued invoice) come back in a deterministic, repeatable
+    order rather than whatever the database happens to return.
+    """
     rows = (
         session.query(BillingInvoice)
         .filter(BillingInvoice.tenant_id == tenant_id)
-        .order_by(BillingInvoice.period_start.desc())
+        .order_by(
+            BillingInvoice.period_start.desc(),
+            BillingInvoice.created_at.desc(),
+            BillingInvoice.id,
+        )
         .limit(limit)
         .all()
     )

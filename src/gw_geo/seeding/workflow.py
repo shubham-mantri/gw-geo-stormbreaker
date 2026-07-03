@@ -9,10 +9,16 @@ the M4 enforcement point for PRD NG1 (with `seeding.compliance`, T03).
 Every transition but the last two is a straightforward status advance. The last two are the
 whole point of this module: **there is no auto-poster.** `run_compliance` is the only path that
 can move a task to `ready_for_human`, and it does so by actually calling `ComplianceEngine.evaluate`
-and persisting the resulting `ComplianceReport` -- never by trusting a caller-supplied verdict.
+and persisting the resulting `ComplianceReport` -- never by trusting a caller-supplied verdict. It
+also **binds the proposal to the task's channel**: because `evaluate` selects the applicable
+per-channel rules from `proposal.channel`, `run_compliance` refuses (with `ComplianceError`) any
+proposal whose channel differs from the task's, so a caller cannot create a `wikipedia` task and
+review it under a `pr_wire` proposal to dodge that channel's stricter rules (PRD NG1).
 `mark_placed` then **re-reads that persisted report from the database row** (not any report a
 caller might have lying around) and hard-refuses with `ComplianceError` unless the row's `status`
-is `ready_for_human` **and** the stored `report["passed"]` is `True`. That re-read is what makes
+is `ready_for_human`, the stored `report["passed"]` is `True`, **and** the stored report's
+`channel` matches the task's channel (defense-in-depth for the same substitution attack). That
+re-read is what makes
 the gate unbypassable: `mark_placed` takes no `ComplianceReport`/`PlacementProposal` argument at
 all, so there is no parameter a caller could ever pass to talk their way past the check --
 including the "never ran compliance" case (`compliance_report` still its `{}` default), which
@@ -152,20 +158,36 @@ class SeedingWorkflow:
         `seeding_task.compliance_report` first, so `mark_placed` always has a persisted,
         re-readable verdict to check regardless of the outcome here.
 
+        The proposal's `channel` **must** equal the task's `channel`: `ComplianceEngine.evaluate`
+        selects which per-channel rules apply from `proposal.channel`, so evaluating a task's
+        placement against a *different* channel's proposal would silently apply the wrong (weaker)
+        ruleset -- e.g. submitting a `pr_wire` proposal (the one channel needing no disclosure)
+        for a `wikipedia` task dodges `disclosure_required` + `wikipedia_no_paid_self_edit`. A
+        mismatch is refused with `ComplianceError` rather than silently coerced: the caller must
+        submit a proposal for the task's real channel (PRD NG1).
+
         Raises:
             LookupError: no `task_id` exists for this tenant.
             IllegalTransitionError: the task's status is not `todo` or `briefed` (i.e. compliance
                 has already been decided for this task, or it has moved past that point).
-            ComplianceError: propagated from `ComplianceEngine.evaluate` if a rule references an
-                unresolvable check key (a misconfigured ruleset must fail loudly, per
-                `compliance.py`) -- the task is left at its current status in that case, not
-                silently advanced.
+            ComplianceError: `proposal.channel` differs from the task's channel (a
+                channel-substitution attempt), or propagated from `ComplianceEngine.evaluate` if a
+                rule references an unresolvable check key (a misconfigured ruleset must fail
+                loudly, per `compliance.py`) -- in both cases the task is left at its current
+                status, not silently advanced.
         """
         task = self._get_task(task_id)
         if task.status not in _COMPLIANCE_ELIGIBLE_STATUSES:
             raise IllegalTransitionError(
                 f"cannot run compliance on task {task_id!r} from status {task.status!r} "
                 f"(must be one of {list(_COMPLIANCE_ELIGIBLE_STATUSES)!r})"
+            )
+        if proposal.channel != task.channel:
+            raise ComplianceError(
+                f"proposal.channel {proposal.channel!r} does not match task {task_id!r}'s channel "
+                f"{task.channel!r}: a placement must be evaluated against its task's real channel "
+                "(submitting a different channel's proposal would evade that channel's compliance "
+                "rules)."
             )
         report = self._engine.evaluate(proposal)
         task.compliance_report = report.model_dump()
@@ -180,25 +202,37 @@ class SeedingWorkflow:
         """Mark `task_id` `placed` -- the sole human-actioned, compliance-gated transition.
 
         Re-reads the task's *persisted* `status` and `compliance_report` (never a value the
-        caller might supply) and raises `ComplianceError` unless **both** the status is
-        `ready_for_human` **and** the stored report's `passed` is `True`. This is the hard gate:
-        there is no argument to this method that lets a caller supply or override a verdict, so a
-        blocked task, a task still awaiting compliance review, and a task where compliance was
-        never run at all (`compliance_report` still `{}`) are all refused identically. No network
-        call is made -- `placed_url` is human-supplied.
+        caller might supply) and raises `ComplianceError` unless **all** of: the status is
+        `ready_for_human`, the stored report's `passed` is `True`, **and** the stored report's
+        `channel` matches the task's `channel`. This is the hard gate: there is no argument to
+        this method that lets a caller supply or override a verdict, so a blocked task, a task
+        still awaiting compliance review, and a task where compliance was never run at all
+        (`compliance_report` still `{}`) are all refused identically. The stored-channel check is
+        defense-in-depth against a channel-substitution report ever reaching this row (the primary
+        guard is in `run_compliance`; `run_compliance` persists the report's `channel`, which
+        equals the proposal's -- itself now forced to equal the task's). No network call is made
+        -- `placed_url` is human-supplied.
 
         Raises:
             LookupError: no `task_id` exists for this tenant.
-            ComplianceError: `status != ready_for_human` or the stored report did not pass.
+            ComplianceError: `status != ready_for_human`, the stored report did not pass, or the
+                stored report's channel does not match the task's channel.
         """
         task = self._get_task(task_id)
-        stored_passed = task.compliance_report.get("passed") if task.compliance_report else None
-        if task.status != SeedingStatus.READY_FOR_HUMAN.value or stored_passed is not True:
+        stored_report = task.compliance_report or {}
+        stored_passed = stored_report.get("passed")
+        stored_channel = stored_report.get("channel")
+        if (
+            task.status != SeedingStatus.READY_FOR_HUMAN.value
+            or stored_passed is not True
+            or stored_channel != task.channel
+        ):
             raise ComplianceError(
                 f"cannot mark task {task_id!r} placed: status={task.status!r}, "
-                f"stored compliance_report.passed={stored_passed!r} -- requires "
-                f"status={SeedingStatus.READY_FOR_HUMAN.value!r} and a persisted passing "
-                "compliance report"
+                f"stored compliance_report.passed={stored_passed!r}, "
+                f"stored compliance_report.channel={stored_channel!r} (task channel "
+                f"{task.channel!r}) -- requires status={SeedingStatus.READY_FOR_HUMAN.value!r}, a "
+                "persisted passing compliance report, and a matching report channel"
             )
         task.status = SeedingStatus.PLACED.value
         task.placed_url = placed_url

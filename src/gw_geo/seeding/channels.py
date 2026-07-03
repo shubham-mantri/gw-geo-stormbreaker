@@ -9,12 +9,17 @@ channel `name`.
 
 `seed_channels`/`seed_compliance_rules` persist that in-code catalog -- plus
 `ComplianceEngine.default_ruleset()` (T03) -- into the `seeding_channel`/`compliance_rule`
-system-level reference tables (T02) so ops can retune a channel's `active` flag or a rule's
-`severity`/`active` state later without a code change (see `compliance.py` module docstring).
-Both are **idempotent upserts** keyed on each table's natural key -- `name` for channels,
-`(channel, code)` for rules -- so re-running a seed/migration step never duplicates rows; neither
-function commits, mirroring the rest of this codebase's upsert helpers (e.g.
-`attribution/linkage.py::_upsert_link`), so the caller controls the transaction boundary.
+system-level reference tables (T02). The two tables differ in whether their persisted state is
+read back: for **channels**, `load_catalog` reads `seeding_channel`, so an ops-side `active` flip
+there *is* honored at runtime without a code change. For **compliance rules**, the seeded
+`compliance_rule` table is currently only a mirror for future ops-tooling -- nothing reads it back
+to build the gate, so the authoritative runtime ruleset is the code-defined
+`ComplianceEngine.default_ruleset()` and editing a rule row does not (yet) change gate behavior
+(see `compliance.py`'s module docstring). Both seeders are **idempotent upserts** keyed on each
+table's natural key -- `name` for channels, `(channel, code)` for rules -- so re-running a
+seed/migration step never duplicates rows; neither function commits, mirroring the rest of this
+codebase's upsert helpers (e.g. `attribution/linkage.py::_upsert_link`), so the caller controls
+the transaction boundary.
 
 `load_catalog` is the read-side counterpart: it reconstructs a `ChannelCatalog` from the
 *persisted*, active `seeding_channel` rows, which is what production callers (discovery, briefs,
@@ -170,6 +175,10 @@ def seed_compliance_rules(session: Session) -> int:
     An existing row (matched by `(channel, code)`) has its mutable fields refreshed in place
     rather than being duplicated, so re-running this is safe. Does not commit -- the caller
     controls the transaction boundary.
+
+    NOTE: this table is a mirror for future ops-tooling; it is not read back to build the
+    compliance engine. The authoritative runtime ruleset is `ComplianceEngine.default_ruleset()`
+    in code, so seeding or editing this table does not change gate behavior (see `compliance.py`).
 
     Returns:
         The number of rules in the default ruleset, regardless of how many were newly inserted

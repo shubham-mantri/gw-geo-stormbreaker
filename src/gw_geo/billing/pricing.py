@@ -88,10 +88,14 @@ def compute_invoice(
     present in `usage.by_kind`. The RaaS charge is zero unless `plan.raas_enabled`; otherwise it
     is `attributed_leads * raas_rate` under the `per_lead` basis, or `attributed_pipeline_usd *
     raas_rate` under `pct_pipeline`. `total` sums `base_fee`, every usage charge, and the RaaS
-    charge.
+    charge. Every usage charge, the RaaS charge, and `total` are rounded to cents (2dp) so float
+    artifacts never reach an invoice.
     """
+    # Round monetary values to cents (2dp) so float artifacts (e.g. 3 * 0.1 ==
+    # 0.30000000000000004) never reach a persisted/displayed invoice. Rounding is monotonic, so it
+    # preserves the pricing model's monotonicity in usage/attributed-leads.
     usage_charges = {
-        kind: quantity * plan.usage_rates.get(kind, 0.0)
+        kind: round(quantity * plan.usage_rates.get(kind, 0.0), 2)
         for kind, quantity in usage.by_kind.items()
     }
 
@@ -101,8 +105,9 @@ def compute_invoice(
         raas_charge = results.attributed_leads * plan.raas_rate
     else:
         raas_charge = results.attributed_pipeline_usd * plan.raas_rate
+    raas_charge = round(raas_charge, 2)
 
-    total = plan.base_fee + sum(usage_charges.values()) + raas_charge
+    total = round(plan.base_fee + sum(usage_charges.values()) + raas_charge, 2)
 
     return Invoice(
         tenant_id=tenant_id,

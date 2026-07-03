@@ -38,6 +38,24 @@ def test_usage_only_when_raas_disabled() -> None:
     assert inv.total == 500.0 + 1.0 + 200.0
 
 
+def test_charges_are_rounded_to_cents() -> None:
+    # fix 7: 3 * 0.1 == 0.30000000000000004 as a raw float; charges/total must round to cents.
+    plan = PricingPlan(plan="growth", base_fee=0.0, usage_rates={"probe": 0.1}, raas_enabled=False)
+    usage = UsageSummary(
+        tenant_id="t1", period_start="a", period_end="b", by_kind={"probe": 3.0}
+    )
+    inv = compute_invoice(
+        tenant_id="t1",
+        plan=plan,
+        usage=usage,
+        results=AttributedResults(attributed_leads=0, attributed_pipeline_usd=0.0),
+        period_start="a",
+        period_end="b",
+    )
+    assert inv.usage_charges["probe"] == 0.3
+    assert inv.total == 0.3
+
+
 def test_raas_per_lead() -> None:
     plan = PricingPlan(
         plan="enterprise",
