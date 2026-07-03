@@ -12,6 +12,8 @@ venv/
 # Env / secrets
 .env
 .env.*
+# ...but keep the tracked template of the GEO_* config knobs (carries no real secrets):
+!.env.example
 *.local
 
 # Serverless / AWS

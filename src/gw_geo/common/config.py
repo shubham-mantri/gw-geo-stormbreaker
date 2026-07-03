@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     pinecone_index: str = "gw-geo-kb"
     embedding_model: str = "text-embedding-3-large"
 
+    # LLM + embedding gateway: route the content engine's calls through the Portkey gateway
+    # (provider routing / virtual keys live in the dashboard Config, not in code) or hit the
+    # providers directly. `"portkey"` needs a `portkey_api_key`; `"direct"` uses the per-provider
+    # keys above (`anthropic_api_key` / `openai_api_key`).
+    llm_gateway: str = "portkey"              # "portkey" | "direct"
+    portkey_api_key: str = ""
+    portkey_base_url: str = "https://api.portkey.ai/v1"
+    portkey_config: str = "pc-portke-0dd3de"  # dashboard Config id holding the provider virtual keys
+
     # M3 ranking (TRD §8)
     ranking_model_type: str = "gbt"           # "gbt" | "logreg"
 

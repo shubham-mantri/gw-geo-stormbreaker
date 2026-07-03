@@ -21,8 +21,11 @@ import json
 import re
 from typing import Any, Protocol
 
+import httpx
+
 from gw_geo.common.config import Settings
 from gw_geo.common.models import Fact
+from gw_geo.common.portkey import PortkeyClient
 
 
 class EmbeddingClient(Protocol):
@@ -90,6 +93,67 @@ class KnowledgeBase:
         vector = self._embedder.embed(query)
         matches = self._store.query(vector, top_k)
         return [(Fact(**meta), score) for _, score, meta in matches]
+
+
+# --------------------------------------------------------------------------------------------
+# Real (non-test) `EmbeddingClient` backends: `OpenAIEmbeddingClient` (direct) and
+# `PortkeyEmbeddingClient` (via the gateway), config-selected by `content.gateway.build_embedder`
+# per `Settings.llm_gateway`. Neither is exercised by the hermetic suite (`tests/content/test_kb.py`
+# injects a fake `EmbeddingClient`); `tests/content/test_gateway.py` exercises both against a mocked
+# transport (`respx`). Both use `httpx` directly, mirroring `generate.AnthropicLLMClient`.
+# --------------------------------------------------------------------------------------------
+
+
+class OpenAIEmbeddingClient:
+    """`EmbeddingClient` that calls OpenAI's embeddings API directly (the `"direct"` gateway path).
+
+    Uses `httpx` directly (no `openai` SDK dependency). Requires an OpenAI API key at call time --
+    mirroring `AnthropicLLMClient`, which validates its key inside `complete` rather than `__init__`.
+    """
+
+    _API_URL = "https://api.openai.com/v1/embeddings"
+    _DEFAULT_MODEL = "text-embedding-3-large"
+
+    def __init__(self, *, api_key: str, model: str | None = None, timeout: float = 60.0) -> None:
+        self._api_key = api_key
+        self._model = model or self._DEFAULT_MODEL
+        self._timeout = timeout
+
+    def embed(self, text: str) -> list[float]:
+        if not self._api_key:
+            raise RuntimeError(
+                "OpenAIEmbeddingClient requires an OpenAI API key "
+                "(pass api_key= or set GEO_OPENAI_API_KEY)."
+            )
+        response = httpx.post(
+            self._API_URL,
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+            },
+            json={"model": self._model, "input": text},
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        vector: list[float] = payload["data"][0]["embedding"]
+        return vector
+
+
+class PortkeyEmbeddingClient:
+    """`EmbeddingClient` backed by the Portkey gateway's `/embeddings` endpoint (the `"portkey"`
+    gateway path). Delegates to an injected `PortkeyClient`; the embedding model is addressed by its
+    native slug (default `text-embedding-3-large`), with provider routing held in the Portkey Config.
+    """
+
+    _DEFAULT_MODEL = "text-embedding-3-large"
+
+    def __init__(self, client: PortkeyClient, *, model: str | None = None) -> None:
+        self._client = client
+        self._model = model or self._DEFAULT_MODEL
+
+    def embed(self, text: str) -> list[float]:
+        return self._client.embedding(model=self._model, text=text)
 
 
 # --------------------------------------------------------------------------------------------
