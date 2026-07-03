@@ -1,5 +1,11 @@
 # M4 Implementation Tasks — gw-geo-stormbreaker
 
+**Status:** ✅ T01–T17 complete — M4 done-gate green (`tests/test_m4_e2e.py`): the closed loop
+holds end-to-end (discovery → compliance → workflow → `placed`), the white-hat compliance gate
+(PRD NG1) blocks astroturf/no-disclosure placements on every channel and `mark_placed` is
+unbypassable, a breached+flagged drift event drives a retrain job, and `billing_summary` composes
+metered usage with a RaaS charge — all with zero live network/AWS/posting.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development` to
 > implement these task-by-task. Each task file is a self-contained unit of work for one subagent,
 > written TDD-first. Steps use checkbox (`- [ ]`) syntax for tracking.
