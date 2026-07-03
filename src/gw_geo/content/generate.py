@@ -265,17 +265,24 @@ class PortkeyLLMClient:
     """`LLMClient` backed by the Portkey gateway's OpenAI-shaped `/chat/completions` endpoint.
 
     Matches `AnthropicLLMClient.complete`'s return contract exactly: it always returns the
-    structured `{"title", "body_markdown", "schema_jsonld"}` dict. `AnthropicLLMClient` forces a
-    tool call whose `input_schema` defaults to `_RESPONSE_SCHEMA` when `schema is None`; this client
-    mirrors that by defaulting the OpenAI `response_format` json_schema to `_RESPONSE_SCHEMA` in the
-    same no-schema case, then `json.loads`-ing `choices[0].message.content` -- so both backends
-    return the identical structured shape and `generate_draft` cannot tell them apart. Provider
-    selection (which Claude model actually serves the request) lives in the Portkey Config; only the
-    native model slug is sent here. Never exercised against a live gateway (tests mock the transport).
+    structured `{"title", "body_markdown", "schema_jsonld"}` dict, in both the schema and
+    no-schema cases. Like `AnthropicLLMClient`, it forces a single function tool (named
+    `record_generated_content`) whose parameters are the effective schema -- `schema` when given,
+    else `_RESPONSE_SCHEMA` -- and reads the result back from the tool call. This uses OpenAI-style
+    function calling (`tools` + `tool_choice`), which Portkey maps to Anthropic **tool-use** (lenient
+    about free-form object params), *not* `response_format`: the latter maps to Anthropic strict
+    structured-output, which 400s on `_RESPONSE_SCHEMA` because its `schema_jsonld` is a free-form
+    object with no declared properties. The structured result arrives as a JSON *string* in
+    `choices[0].message.tool_calls[0].function.arguments`, which is `json.loads`-ed here -- so both
+    backends return the identical structured shape and `generate_draft` cannot tell them apart.
+    Provider selection (which Claude model actually serves the request) lives in the Portkey Config;
+    only the native model slug is sent here. Never exercised against a live gateway (tests mock the
+    transport).
     """
 
     _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
-    _SCHEMA_NAME = "record_generated_content"
+    # Matches AnthropicLLMClient._TOOL_NAME so both backends force the same tool.
+    _TOOL_NAME = "record_generated_content"
 
     def __init__(
         self,
@@ -298,17 +305,21 @@ class PortkeyLLMClient:
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": self._SCHEMA_NAME,
-                    "schema": effective_schema,
-                    "strict": True,
-                },
-            },
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": self._TOOL_NAME,
+                        "description": "Record the generated, grounded content draft.",
+                        "parameters": effective_schema,
+                    },
+                }
+            ],
+            tool_choice={"type": "function", "function": {"name": self._TOOL_NAME}},
             max_tokens=self._max_tokens,
         )
-        result: dict[str, Any] = json.loads(payload["choices"][0]["message"]["content"])
+        arguments = payload["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+        result: dict[str, Any] = json.loads(arguments)
         return result
 
 
