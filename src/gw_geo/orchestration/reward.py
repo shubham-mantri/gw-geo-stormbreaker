@@ -16,10 +16,13 @@ Per aged `placed` `seeding_task` (for one tenant/brand):
 2. **corroboration.** `corroboration.update_corroboration` recomputes and persists the brand's
    corroboration count over `[placement_date, now]` (and advances `placed -> corroborated` once any
    independent domain corroborates).
-3. **reward = lift, clamped [0, 1].** `lift = new_count - previously_recorded_count`; the reward is
-   that lift clamped to `[0.0, 1.0]` (a placement that yields at least one new independent
-   corroborating domain is a full-credit win; none is a zero). `effort.record_reward` upserts it
-   onto arm `f"{channel}:default"`.
+3. **reward on advance only.** `lift = new_count - previously_recorded_count`. A reward is recorded
+   **only when `lift > 0`** -- i.e. the placement actually gained at least one new independent
+   corroborating domain (the `placed -> corroborated` transition). That reward is the lift clamped
+   to `[0.0, 1.0]` (any new domain is a full-credit win), upserted onto arm `f"{channel}:default"`
+   via `effort.record_reward`. A still-`placed`, uncorroborated task (`lift <= 0`) is left alone:
+   recording a reward-0 pull for it every run would bias the bandit's pull counts (M5 review). A
+   corroborated task flips out of the `placed` scan, so its single win is recorded exactly once.
 
 The corroboration signal is read through the injected `SourceMap` protocol (T05) -- a fake in tests,
 the AnswerExtraction-backed `CitationSourceMap` in the job -- so the core is hermetic (no live DB
@@ -75,10 +78,13 @@ def run_reward_reconcile(
     """Reconcile corroboration rewards for `brand_id`'s aged `placed` seeding tasks (hermetic core).
 
     `source_map` (the citation-source reader) is injected. For every `placed` task at least
-    `aging_days` old, recompute corroboration (`update_corroboration`), derive the reward from the
-    corroboration lift (clamped `[0, 1]`), and record it onto arm `f"{channel}:default"` via
-    `effort.record_reward`. `now` (the "as of" instant, default: now UTC) drives both the aging
-    cutoff and the corroboration window's `until`. Returns the number of tasks reconciled.
+    `aging_days` old, recompute corroboration (`update_corroboration`); when the corroboration
+    **advanced** this run (lift > 0), record the reward (lift clamped `[0, 1]`) onto arm
+    `f"{channel}:default"` via `effort.record_reward`. A task whose corroboration did not advance is
+    skipped -- no reward, no pull -- so a never-corroborated placement is not re-rewarded 0 on every
+    run (M5 review). `now` (the "as of" instant, default: now UTC) drives both the aging cutoff and
+    the corroboration window's `until`. Returns the number of tasks for which a reward was recorded
+    (i.e. whose corroboration advanced), not merely the number scanned.
     """
     resolved_now = now if now is not None else datetime.now(timezone.utc)
     cutoff = resolved_now - timedelta(days=aging_days)
@@ -109,7 +115,18 @@ def run_reward_reconcile(
         new_count = update_corroboration(
             session, source_map, tenant_id=tenant_id, task_id=task.id, since=since, until=until
         )
-        reward = _reward_from_lift(new_count - old_count)
+        lift = new_count - old_count
+        # M5 review: record a reward ONLY when corroboration actually advanced this run (lift > 0 --
+        # the placed->corroborated transition / new independent domains). The aging gate is a lower
+        # bound only, so a still-`placed`, never-corroborated task is otherwise re-swept on every
+        # reconcile run and re-recorded with reward 0, inflating that arm's pull count and biasing
+        # `allocate_effort` once it is adopted. A task whose corroboration advances flips to
+        # `corroborated` (via `update_corroboration`) and so drops out of the `status == placed`
+        # query on the next run -- its reward is recorded exactly once (corroborated-once preserved).
+        if lift <= 0:
+            continue
+
+        reward = _reward_from_lift(lift)
         record_reward(
             session,
             tenant_id=tenant_id,
@@ -124,7 +141,7 @@ def run_reward_reconcile(
             brand_id,
             task.id,
             task.channel,
-            new_count - old_count,
+            lift,
             reward,
         )
 

@@ -704,9 +704,20 @@ class BillingInvoice(Base):
     """One computed invoice for a billing period (m4-design §4.2/§4.4) -- the persisted form of
     `compute_invoice()`'s `Invoice`: base fee + usage charges + RaaS charge on attributed results.
     `status` tracks the invoice lifecycle (e.g. draft/finalized/paid; app-validated). Tenant-scoped.
+
+    Unique per `(tenant_id, period_start, period_end)` (M5 review): the period-close job's
+    check-then-insert idempotency guard (`handlers.close_billing.handler`) is now durably backed by
+    a DB constraint, so a concurrent/retried close can never insert a second draft for the same
+    period -- the second insert fails the constraint rather than racing the SELECT. Added by
+    migration `0007`.
     """
 
     __tablename__ = "billing_invoice"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "period_start", "period_end", name="uq_billing_invoice_tenant_period"
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)

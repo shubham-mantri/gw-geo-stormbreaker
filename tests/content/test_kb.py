@@ -1,5 +1,7 @@
+import pytest
+
 from gw_geo.common.models import Fact
-from gw_geo.content.kb import KnowledgeBase
+from gw_geo.content.kb import KnowledgeBase, PgVectorStore
 
 
 class FakeStore:
@@ -69,3 +71,23 @@ def test_ground_scored_is_consistent_with_ground():
     assert [f.id for f in kb.ground(query, top_k=2)] == [
         f.id for f, _ in kb.ground_scored(query, top_k=2)
     ]
+
+
+# --- PgVectorStore table-name guard (M5 review): the f-string table must stay a trusted identifier.
+
+
+def test_pgvector_store_accepts_default_table():
+    # Construction is I/O-free (psycopg import + connect are lazy), so this never touches a DB.
+    store = PgVectorStore(database_url="postgresql://x", brand_id="b1")
+    assert store is not None
+
+
+def test_pgvector_store_rejects_unsafe_table_name():
+    # Defense-in-depth: a table name that isn't a bare SQL identifier (here, an injection attempt)
+    # must be refused at construction rather than interpolated into the f-string SQL.
+    with pytest.raises(ValueError, match="safe SQL identifier"):
+        PgVectorStore(
+            database_url="postgresql://x",
+            brand_id="b1",
+            table="kb_fact_embedding; DROP TABLE tenant; --",
+        )

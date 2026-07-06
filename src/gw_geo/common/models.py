@@ -179,6 +179,12 @@ class GuardrailReport(BaseModel):
     brand_voice_ok: bool
     brand_voice_score: float
     passed: bool
+    # M5 review (honesty): False when originality was NOT actually enforced because no real
+    # `CorpusSearch` backend is configured (the LOCAL-only default wiring injects an empty stub, so
+    # `originality_ok` is trivially True -- see `api/wiring.py`). Purely an audit signal: it does NOT
+    # gate `passed` (human editor+ approval + KB claim-grounding remain the real gates). Defaults
+    # True so any caller that does wire a real corpus is unaffected.
+    originality_enforced: bool = True
 
 
 class Opportunity(BaseModel):

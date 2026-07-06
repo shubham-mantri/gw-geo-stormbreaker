@@ -10,6 +10,9 @@ opens a connection -- the same guarantee `test_app.test_mangum_handler_importabl
 
 from __future__ import annotations
 
+import logging
+
+import pytest
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session as SASession
 
@@ -46,5 +49,30 @@ def test_real_services_construct_without_io(settings: Settings, engine: Engine) 
                 principal=Principal(user_id="u1", tenant_id="t1", role="editor"),
             )
             assert isinstance(opp_svc, DbOpportunityService)
+    finally:
+        base.clear_registry()
+
+
+def test_build_content_service_warns_originality_not_enforced(
+    settings: Settings, engine: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    """M5 review (honesty): the LOCAL-only build wires no `CorpusSearch`, so originality is not
+    enforced. `build_content_service` must SURFACE that -- a WARNING at build time and
+    `originality_enforced=False` on the service -- so a plagiarized draft can never pass that leg
+    *silently*. This does not change what blocks publish (approval + claim-grounding remain).
+    """
+    try:
+        with (
+            SASession(engine) as session,
+            caplog.at_level(logging.WARNING, logger="gw_geo.api.wiring"),
+        ):
+            svc = wiring.build_content_service(
+                session=session, settings=settings, tenant_id="t1"
+            )
+        assert svc._originality_enforced is False
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings, "expected a WARNING that originality is not enforced"
+        assert "originality" in caplog.text.lower()
+        assert "originality_enforced=False" in caplog.text
     finally:
         base.clear_registry()

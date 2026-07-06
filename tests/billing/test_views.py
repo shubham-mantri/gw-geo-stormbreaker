@@ -70,13 +70,20 @@ def test_invoice_history_newest_first():
 def test_invoice_history_is_deterministic_on_ties():
     # fix 8: rows sharing period_start AND created_at must order deterministically -- the stable
     # final tiebreaker is `id` ascending, so `total` (distinct per row) comes back i_a, i_b, i_c.
+    # M5: (tenant_id, period_start, period_end) is now UNIQUE, so each row carries a distinct
+    # period_end (not a sort key) -- the period_start+created_at tie, and thus the id-ascending
+    # tiebreak, are unchanged.
     s = _session()
     s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
     s.commit()
     ts = datetime(2026, 7, 1, tzinfo=timezone.utc)
-    for inv_id, total in (("i_c", 3.0), ("i_a", 1.0), ("i_b", 2.0)):
+    for inv_id, total, period_end in (
+        ("i_c", 3.0, "2026-07-03"),
+        ("i_a", 1.0, "2026-07-01"),
+        ("i_b", 2.0, "2026-07-02"),
+    ):
         s.add(BillingInvoice(
-            id=inv_id, tenant_id="t1", period_start="2026-06-01", period_end="2026-07-01",
+            id=inv_id, tenant_id="t1", period_start="2026-06-01", period_end=period_end,
             base_fee=0.0, usage_charges={}, raas_charge=0.0, attributed_leads=0,
             attributed_pipeline_usd=0.0, total=total, status="draft", created_at=ts,
         ))

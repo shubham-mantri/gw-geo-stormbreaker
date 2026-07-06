@@ -10,6 +10,16 @@ rather than passes.
 `CorpusSearch` is a Protocol so tests inject in-memory fakes (no live search calls, ever, in the
 default suite). `WebCorpusSearch` below is a real implementation for production wiring, exercised
 in tests only against a mocked `httpx` transport (`respx`), never live.
+
+**Honesty note (M5 review): this guardrail is NOT enforced in the LOCAL-only default wiring.** A
+real plagiarism corpus needs a web-search source this build deliberately does not have (LOCAL-only,
+no SERP), so `api/wiring.py` injects a `_NoCorpus` stub whose `search` returns `[]`. With no
+documents to compare against, `check_originality` returns `max_similarity=0.0` and `ok=True` for
+*any* draft -- so a plagiarized draft passes this leg. That gap is made visible rather than silent:
+`build_content_service` logs a warning and stamps `originality_enforced=False` onto every
+`GuardrailReport` (see `GuardrailReport.originality_enforced`). It does **not** relax the gates that
+actually block publish -- human `editor+` approval and KB claim-grounding (`verify_claims`) do that.
+Enforcement returns automatically once a real `CorpusSearch` is wired.
 """
 
 from __future__ import annotations

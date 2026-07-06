@@ -63,6 +63,7 @@ def run_guardrails(
     voice_scorer: VoiceScorer,
     voice_profile: dict[str, Any],
     thresholds: GuardrailThresholds | None = None,
+    originality_enforced: bool = True,
 ) -> GuardrailReport:
     """Run all three guardrails against `draft.body_markdown` and compose one `GuardrailReport`.
 
@@ -71,6 +72,13 @@ def run_guardrails(
     `voice_profile`) -- each with its threshold taken from `thresholds`. `thresholds=None` (the
     default) builds thresholds from `get_settings()` (T01), so omitting it means "use the
     fail-closed config defaults", not "use no threshold".
+
+    `originality_enforced` (M5 review, honesty) is recorded verbatim onto the report as an audit
+    signal only: the caller passes `False` when the injected `corpus` is a no-op stub (no real
+    `CorpusSearch` backend configured, so `check_originality` compares against nothing and
+    `originality_ok` is trivially `True`). It does NOT change `passed` -- the fail-closed `AND`
+    below is unchanged -- so it never blocks or unblocks content; it just makes the "originality was
+    not actually checked" condition visible/auditable rather than silent.
 
     Returns:
         A `GuardrailReport` whose `passed` is `True` iff `originality_ok AND claims_ok AND
@@ -102,4 +110,5 @@ def run_guardrails(
         brand_voice_ok=brand_voice_ok,
         brand_voice_score=brand_voice_score,
         passed=originality_ok and claims_ok and brand_voice_ok,
+        originality_enforced=originality_enforced,
     )
