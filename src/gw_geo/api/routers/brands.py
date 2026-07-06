@@ -21,21 +21,32 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session as SASession
 
 from gw_geo.api.auth import Principal
-from gw_geo.api.deps import get_current_principal, get_db_session, require_role, scoped_session
+from gw_geo.api.deps import (
+    get_current_principal,
+    get_db_session,
+    get_settings_dep,
+    require_role,
+    scoped_session,
+)
 from gw_geo.api.schemas import (
     BrandCreate,
     BrandCreated,
     BrandOut,
+    MeasureAccepted,
+    MeasureTriggerRequest,
     OverviewOut,
     OverviewTrendPoint,
 )
 from gw_geo.attribution.pipeline import pipeline_view
+from gw_geo.common.config import Settings
 from gw_geo.common.db import Brand, TenantScopedSession
+from gw_geo.common.wiring import configured_engine_names
 from gw_geo.measurement import feed
+from gw_geo.measurement.trigger import run_measurement_job
 
 router = APIRouter(tags=["brands"])
 
@@ -171,4 +182,46 @@ def get_overview(
             )
             for row in sov_rows
         ],
+    )
+
+
+@router.post("/brands/{brand_id}/measure", status_code=202, response_model=MeasureAccepted)
+def trigger_measurement(
+    brand_id: str,
+    background_tasks: BackgroundTasks,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+    scoped: Annotated[TenantScopedSession, Depends(scoped_session)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    body: MeasureTriggerRequest | None = None,
+) -> MeasureAccepted:
+    """``POST /brands/{brand_id}/measure`` (W2 live wiring) -- kick off a measurement run.
+
+    Requires ``role >= editor`` (a ``viewer`` -> **403**) and brand ownership under the caller's
+    tenant (an unowned/unknown brand -> **404**, never a tenant leak -- same collapse as
+    ``get_overview``). The run is **scheduled onto a background task**, never executed inline in the
+    request: ``run_measurement_job`` builds the runtime + a fresh session and drives the async
+    pipeline out of band, so the request returns **202** immediately.
+
+    ``engines`` / ``n_samples`` / ``geos`` come from the (optional) body, else fall back to every
+    API-keyed engine the runtime has configured and the settings defaults. ``tenant_id`` is taken
+    from the token (``principal``), never the client. Returns what was scheduled (engines, n).
+    """
+    _ensure_brand_owned(scoped, brand_id)
+    req = body if body is not None else MeasureTriggerRequest()
+
+    engines = req.engines if req.engines else configured_engine_names(settings)
+    n_samples = req.n_samples if req.n_samples is not None else settings.default_n_samples
+    geos = req.geos if req.geos else list(settings.default_geos)
+
+    background_tasks.add_task(
+        run_measurement_job,
+        tenant_id=principal.tenant_id,
+        brand_id=brand_id,
+        engines=engines,
+        geos=geos,
+        n_samples=n_samples,
+        date=req.date,
+    )
+    return MeasureAccepted(
+        status="accepted", brand_id=brand_id, engines=engines, n_samples=n_samples
     )

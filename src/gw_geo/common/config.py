@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://localhost/geo_dev"
     s3_bucket: str = "gw-geo-dev"
     aws_region: str = "us-east-1"
+
+    # Raw-payload archive backend (measurement.runner.RawArchive). Default "s3" (S3RawArchive);
+    # set to "local" for a local-only run (no AWS) -- build_runtime then uses a LocalFileArchive
+    # rooted at `raw_archive_dir` instead of hitting S3.
+    raw_archive_backend: str = "s3"          # "s3" | "local"
+    raw_archive_dir: str = ""                # base dir for the "local" backend
     perplexity_api_key: str = ""
     openai_api_key: str = ""
     anthropic_api_key: str = ""

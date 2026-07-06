@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 # boto3 ships no py.typed marker / stubs, so mypy can't analyze it -- see build_runtime's
@@ -56,6 +57,58 @@ class S3RawArchive:
             ContentType="application/json",
         )
         return key
+
+
+class LocalFileArchive:
+    """`RawArchive` (TRD §5.5) backed by the local filesystem -- for a local-only run (no AWS).
+
+    Writes each payload as a JSON file at `<base_dir>/<key>`, creating parent directories as
+    needed, and returns the same `key` it was handed (the storage ref recorded on the
+    `ProbeRun`), exactly like `S3RawArchive`. `build_runtime` selects this over `S3RawArchive`
+    when `settings.raw_archive_backend == "local"`, which is what lets a local pipeline persist a
+    raw snapshot (and thus flow visibility data to the dashboard) without any S3 bucket -- the
+    `S3RawArchive.put -> boto3` failure that otherwise leaves the runner recording only error
+    `ProbeRun`s with no snapshot.
+    """
+
+    def __init__(self, base_dir: str) -> None:
+        self._base_dir = Path(base_dir)
+
+    def put(self, key: str, payload: dict[str, Any]) -> str:
+        """Store `payload` as JSON at `<base_dir>/<key>` (mkdir -p its parent); return `key`."""
+        path = self._base_dir / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return key
+
+
+def configured_engine_names(settings: Settings) -> list[str]:
+    """The API-keyed engine names `build_runtime` would register from `settings`, in that order.
+
+    Pure and side-effect-free: reads only `settings`, touching neither the process-global adapter
+    registry nor any network client -- so an API request path (the `POST /brands/{id}/measure`
+    trigger) or the CLI scheduler can report/default the "measure with every configured engine"
+    set without the cost or the registry-mutating side effects of calling `build_runtime`.
+
+    Covers only the API-key engines (the Playwright surfaces need an injected `CaptureClient`,
+    which no key-only caller has). Kept deliberately in lock-step with `build_runtime`'s API-engine
+    registration block below -- same engines, same order, same DeepSeek `deepseek_enabled` gate;
+    update both together.
+    """
+    names: list[str] = []
+    if settings.perplexity_api_key:
+        names.append("perplexity")
+    if settings.openai_api_key:
+        names.append("openai")
+    if settings.gemini_api_key:
+        names.append("gemini")
+    if settings.anthropic_api_key:
+        names.append("claude")
+    if settings.copilot_api_key:
+        names.append("copilot")
+    if settings.deepseek_api_key and settings.deepseek_enabled:
+        names.append("deepseek")
+    return names
 
 
 def _build_live_capture(settings: Settings) -> CaptureClient | None:
@@ -143,7 +196,13 @@ def build_runtime(settings: Settings, *, capture: CaptureClient | None = None) -
         _register(ChatGPTAdapter(capture_backend))
         _register(GrokAdapter(capture_backend))
 
-    archive: RawArchive = S3RawArchive(bucket=settings.s3_bucket)
+    # Raw-payload archive: local filesystem for a local-only run (no AWS), else S3 (the default,
+    # unchanged). The "local" branch never constructs a boto3 S3 client at all.
+    archive: RawArchive
+    if settings.raw_archive_backend == "local":
+        archive = LocalFileArchive(settings.raw_archive_dir)
+    else:
+        archive = S3RawArchive(bucket=settings.s3_bucket)
     extractor: Extractor = ClaudeExtractor(api_key=settings.anthropic_api_key)
 
     return {"extractor": extractor, "archive": archive, "engines": engines}

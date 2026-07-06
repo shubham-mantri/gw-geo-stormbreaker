@@ -1,10 +1,15 @@
-"""Tests for the brands + overview endpoints (M2-T13, ui-spec.md §6/§3.1).
+"""Tests for the brands + overview endpoints (M2-T13, ui-spec.md §6/§3.1) and the
+``POST /brands/{id}/measure`` live-measurement trigger (W2 live wiring).
 
-Fixtures (``app_client``, ``t1_token``, ``t2_token``, ``viewer_token``, ``seeded_brands``,
-``seeded_snapshots``) live in ``tests/api/conftest.py``. Hermetic: in-memory SQLite, no live calls.
+Fixtures (``app_client``, ``t1_token``, ``t2_token``, ``viewer_token``, ``editor_token``,
+``seeded_brands``, ``seeded_snapshots``) live in ``tests/api/conftest.py``. Hermetic: in-memory
+SQLite, no live calls -- the trigger tests patch ``run_measurement_job`` so the enqueued background
+task never builds a real runtime or probes an engine.
 """
 
 from __future__ import annotations
+
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -39,3 +44,86 @@ def test_overview_shape(app_client: TestClient, t1_token: str, seeded_snapshots:
 def test_overview_foreign_brand_404(app_client: TestClient, t1_token: str) -> None:
     r = app_client.get("/brands/b2/overview", headers={"Authorization": f"Bearer {t1_token}"})
     assert r.status_code == 404
+
+
+# --- POST /brands/{id}/measure (W2 live-measurement trigger) ---------------------------------
+
+
+def test_measure_enqueues_job(
+    app_client: TestClient, editor_token: str, seeded_brands: None
+) -> None:
+    # The TestClient runs the enqueued BackgroundTask before returning, so a patched
+    # run_measurement_job records that it was scheduled -- with no live probe/DB/S3 work.
+    with patch("gw_geo.api.routers.brands.run_measurement_job") as job:
+        r = app_client.post(
+            "/brands/b1/measure",
+            json={"engines": ["perplexity"], "n_samples": 4},
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+    assert r.status_code == 202
+    body = r.json()
+    assert body["brand_id"] == "b1"
+    assert body["engines"] == ["perplexity"]
+    assert body["n_samples"] == 4
+    job.assert_called_once()
+    kwargs = job.call_args.kwargs
+    assert kwargs["tenant_id"] == "t1"  # from the token, never the client
+    assert kwargs["brand_id"] == "b1"
+    assert kwargs["engines"] == ["perplexity"]
+    assert kwargs["n_samples"] == 4
+
+
+def test_measure_defaults_when_body_omitted(
+    app_client: TestClient, editor_token: str, seeded_brands: None
+) -> None:
+    # Test settings carry no engine API keys, so no engines are configured; n falls back to the
+    # settings default (8). Verifies the endpoint resolves defaults without a request body.
+    with patch("gw_geo.api.routers.brands.run_measurement_job") as job:
+        r = app_client.post(
+            "/brands/b1/measure", headers={"Authorization": f"Bearer {editor_token}"}
+        )
+    assert r.status_code == 202
+    body = r.json()
+    assert body["engines"] == []
+    assert body["n_samples"] == 8
+    job.assert_called_once()
+
+
+def test_measure_requires_editor(
+    app_client: TestClient, viewer_token: str, seeded_brands: None
+) -> None:
+    with patch("gw_geo.api.routers.brands.run_measurement_job") as job:
+        r = app_client.post(
+            "/brands/b1/measure",
+            json={"engines": ["perplexity"]},
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+    assert r.status_code == 403
+    job.assert_not_called()
+
+
+def test_measure_foreign_brand_404(
+    app_client: TestClient, t1_token: str, seeded_brands: None
+) -> None:
+    # t1 requesting b2 (owned by t2): collapses to 404, never confirming b2 exists.
+    with patch("gw_geo.api.routers.brands.run_measurement_job") as job:
+        r = app_client.post(
+            "/brands/b2/measure",
+            json={"engines": ["perplexity"]},
+            headers={"Authorization": f"Bearer {t1_token}"},
+        )
+    assert r.status_code == 404
+    job.assert_not_called()
+
+
+def test_measure_unknown_brand_404(
+    app_client: TestClient, t1_token: str, seeded_brands: None
+) -> None:
+    with patch("gw_geo.api.routers.brands.run_measurement_job") as job:
+        r = app_client.post(
+            "/brands/does-not-exist/measure",
+            json={"engines": ["perplexity"]},
+            headers={"Authorization": f"Bearer {t1_token}"},
+        )
+    assert r.status_code == 404
+    job.assert_not_called()

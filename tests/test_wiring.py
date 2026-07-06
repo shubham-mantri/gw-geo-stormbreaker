@@ -1,7 +1,8 @@
 """Wiring tests (TRD §11): `build_runtime` idempotency (C1) + the S3-backed archive (I6).
 
 Hermetic (TRD §12): no live AWS/API calls. `build_runtime` constructs a boto3 S3 client but
-issues no request; the `S3RawArchive` round-trip runs entirely under moto's `mock_aws`.
+issues no request; the `S3RawArchive` round-trip runs entirely under moto's `mock_aws`. The
+local-filesystem archive (W2 live wiring) writes only under a `tmp_path`.
 """
 
 import json
@@ -13,7 +14,12 @@ from moto import mock_aws
 
 from gw_geo.capture.base import CapturePage
 from gw_geo.common.config import Settings
-from gw_geo.common.wiring import S3RawArchive, build_runtime
+from gw_geo.common.wiring import (
+    LocalFileArchive,
+    S3RawArchive,
+    build_runtime,
+    configured_engine_names,
+)
 from gw_geo.measurement.probe import base
 from tests.capture.fakes import FakeCaptureClient
 
@@ -38,6 +44,10 @@ def _hermetic_wiring_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "GEO_DEEPSEEK_ENABLED",
         "GEO_PROXY_POOL_CONFIG_REF",
         "GEO_ACCOUNT_POOL_CONFIG_REF",
+        # Keep the archive-backend selection deterministic too, so the default-S3 assertion below
+        # can't be flipped by a host that exports GEO_RAW_ARCHIVE_BACKEND=local.
+        "GEO_RAW_ARCHIVE_BACKEND",
+        "GEO_RAW_ARCHIVE_DIR",
     ):
         monkeypatch.delenv(var, raising=False)
     yield
@@ -137,3 +147,50 @@ def test_registers_playwright_engines_with_capture():
     """The three Playwright surfaces register when a `CaptureClient` is injected."""
     rt = build_runtime(Settings(), capture=_capture())
     assert {"google_ai_overviews", "chatgpt", "grok"} <= set(rt["engines"])
+
+
+# --- W2 live wiring: local-filesystem archive + archive-backend selection --------------------
+
+
+def test_local_file_archive_put_round_trip(tmp_path):
+    """`LocalFileArchive.put` writes the payload as JSON under base_dir and returns the key ref.
+
+    The local counterpart to the S3 `I6` round-trip above -- the fix that lets a local-only run
+    persist a raw snapshot (and thus flow visibility data to the dashboard) without any S3 bucket.
+    """
+    archive = LocalFileArchive(str(tmp_path))
+    key = "probe/t1/b1/perplexity/abc123.json"
+    payload = {"answer": "Foo is best", "citations": ["https://foo.com"]}
+
+    ref = archive.put(key, payload)
+
+    assert ref == key
+    written = tmp_path / key
+    assert written.exists()  # parent dirs were created
+    assert json.loads(written.read_text(encoding="utf-8")) == payload
+
+
+def test_build_runtime_selects_local_archive_when_configured(clean_registry, tmp_path):
+    """`raw_archive_backend="local"` -> a `LocalFileArchive` (no boto3 S3 client built at all)."""
+    settings = Settings(raw_archive_backend="local", raw_archive_dir=str(tmp_path))
+    rt = build_runtime(settings)
+    assert isinstance(rt["archive"], LocalFileArchive)
+
+
+def test_build_runtime_defaults_to_s3_archive(clean_registry):
+    """Default backend is unchanged: `build_runtime` still builds an `S3RawArchive`."""
+    settings = Settings(s3_bucket="gw-geo-test")
+    rt = build_runtime(settings)
+    assert isinstance(rt["archive"], S3RawArchive)
+
+
+def test_configured_engine_names_mirrors_build_runtime_api_engines():
+    """`configured_engine_names` returns exactly the API-keyed engines `build_runtime` registers."""
+    s = Settings(
+        perplexity_api_key="p",
+        openai_api_key="o",
+        anthropic_api_key="a",
+        deepseek_api_key="d",  # no deepseek_enabled -> excluded, like build_runtime
+    )
+    assert configured_engine_names(s) == ["perplexity", "openai", "claude"]
+    assert configured_engine_names(Settings()) == []
