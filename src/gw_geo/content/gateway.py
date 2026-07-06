@@ -1,15 +1,23 @@
 """Config-driven factories that route the content engine's LLM + embedding calls.
 
-`build_portkey_client` returns a shared `PortkeyClient` when the gateway is both selected
-(`Settings.llm_gateway == "portkey"`) and keyed (`Settings.portkey_api_key` set), otherwise `None`.
-Every other factory returns the **Portkey-backed** implementation when that client is available and
-the **direct** provider client (Anthropic for chat, OpenAI for embeddings) otherwise -- so selecting
-`llm_gateway="portkey"` without a key degrades gracefully to the direct path rather than failing,
-mirroring `gw_geo.common.wiring`'s "skip what isn't configured" posture (TRD §7).
+The content-chat path (generation, seeding briefs, competitor suggestion, claim extraction,
+brand-voice scoring) is selected by `Settings.llm_gateway`:
 
-Model slugs are Portkey **native slugs**; provider routing / virtual keys are held in the Portkey
-dashboard Config, never here. `DEFAULT_CHAT_MODEL` is a deliberately cheap default (Haiku) for the
-high-volume content + guardrail calls; embeddings default to `Settings.embedding_model`.
+* `"local_claude"` (default) -- run every chat call through the local `claude -p` CLI on the user's
+  Claude Max subscription (`LocalClaudeCliClient`), at $0 API cost and needing no key.
+* `"portkey"` -- route through the Portkey gateway when keyed (`portkey_api_key`); provider routing
+  / virtual keys live in the dashboard Config, never here. Model slugs are Portkey native slugs.
+* `"direct"` -- hit the providers directly (Anthropic for chat).
+
+`build_portkey_client` returns a shared `PortkeyClient` only when the gateway is `"portkey"` *and*
+keyed, else `None` -- so `llm_gateway="portkey"` without a key degrades gracefully to the direct
+path rather than failing, mirroring `gw_geo.common.wiring`'s "skip what isn't configured" posture
+(TRD §7). `DEFAULT_CHAT_MODEL` is a deliberately cheap default (Haiku) for the high-volume Portkey
+chat + guardrail calls; embeddings default to `Settings.embedding_model`.
+
+Embeddings are **never** served by local Claude (the CLI can't embed): `build_embedder` is
+independent of the `local_claude` flag and always returns the Portkey embedder (when keyed) or the
+direct OpenAI client.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ from gw_geo.content.kb import (
     PortkeyEmbeddingClient,
     build_vector_store,
 )
+from gw_geo.content.llm_local import LocalClaudeCliClient
 
 # Cheap default for the high-volume content + guardrail chat calls; overridable per call site.
 DEFAULT_CHAT_MODEL = "claude-haiku-4-5-20251001"
@@ -44,8 +53,20 @@ def build_portkey_client(settings: Settings) -> PortkeyClient | None:
     )
 
 
+def build_local_claude_client(settings: Settings) -> LocalClaudeCliClient:
+    """The local `claude -p` `LLMClient` (Claude Max subscription, $0), built from `claude_cli_*`."""
+    return LocalClaudeCliClient(
+        bin=settings.claude_cli_bin,
+        model=settings.claude_cli_model,
+        config_dir=settings.claude_cli_config_dir,
+        timeout=settings.claude_cli_timeout_s,
+    )
+
+
 def build_llm_client(settings: Settings) -> LLMClient:
-    """The generation `LLMClient`: Portkey-backed when available, else direct Anthropic."""
+    """The generation `LLMClient`: local Claude when `local_claude`, else Portkey (keyed) or direct."""
+    if settings.llm_gateway == "local_claude":
+        return build_local_claude_client(settings)
     client = build_portkey_client(settings)
     if client is not None:
         return PortkeyLLMClient(client, model=DEFAULT_CHAT_MODEL)
@@ -61,7 +82,9 @@ def build_embedder(settings: Settings) -> EmbeddingClient:
 
 
 def build_claim_extractor(settings: Settings) -> ClaimExtractor:
-    """The claim-verification `ClaimExtractor`: Portkey-routed when available, else direct Anthropic."""
+    """The claim-verification `ClaimExtractor`: local Claude when `local_claude`, else Portkey/direct."""
+    if settings.llm_gateway == "local_claude":
+        return LLMClaimExtractor(llm=build_local_claude_client(settings))
     client = build_portkey_client(settings)
     if client is not None:
         return LLMClaimExtractor(portkey=client, model=DEFAULT_CHAT_MODEL)
@@ -69,7 +92,9 @@ def build_claim_extractor(settings: Settings) -> ClaimExtractor:
 
 
 def build_voice_scorer(settings: Settings) -> VoiceScorer:
-    """The brand-voice `VoiceScorer`: Portkey-routed when available, else direct Anthropic."""
+    """The brand-voice `VoiceScorer`: local Claude when `local_claude`, else Portkey/direct."""
+    if settings.llm_gateway == "local_claude":
+        return LLMVoiceScorer(llm=build_local_claude_client(settings))
     client = build_portkey_client(settings)
     if client is not None:
         return LLMVoiceScorer(portkey=client, model=DEFAULT_CHAT_MODEL)
@@ -103,6 +128,7 @@ __all__ = [
     "build_embedder",
     "build_kb_factory",
     "build_llm_client",
+    "build_local_claude_client",
     "build_portkey_client",
     "build_voice_scorer",
 ]

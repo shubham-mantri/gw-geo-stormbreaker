@@ -18,6 +18,16 @@ from typing import Any, Protocol
 import httpx
 
 from gw_geo.common.portkey import PortkeyClient
+from gw_geo.content.generate import LLMClient
+
+# System turn used only on the local-Claude (`LLMClient`) path -- the direct-Anthropic / Portkey
+# transports carry the instruction in the user turn. Parse behavior is identical: every path reads
+# the same `{"score", "violations"}` object off `_input_schema()`.
+_VOICE_SYSTEM = (
+    "You score how well a content draft conforms to a brand's voice profile, from 0.0 (not at all "
+    "on-voice) to 1.0 (perfect conformance), and list any specific violations. Respond only via "
+    "the requested tool call / structured output."
+)
 
 
 class VoiceScorer(Protocol):
@@ -46,16 +56,19 @@ def check_brand_voice(
 class LLMVoiceScorer:
     """`VoiceScorer` backed by an LLM in structured-output (JSON) mode.
 
-    Two transports, same prompt + same parsed `{"score", "violations"}` result: by default it calls
-    the Claude Messages API directly via `httpx` (tool-use / `anthropic`-SDK-free); when an optional
-    `PortkeyClient` is injected it instead sends the identical prompt through the Portkey gateway's
-    OpenAI-shaped `/chat/completions`, forcing the same schema via an OpenAI-style function tool
-    (`tools` + `tool_choice`) and reading the score out of
-    `choices[0].message.tool_calls[0].function.arguments`. Function calling (mapped by Portkey to
-    Anthropic tool-use) is used rather than `response_format` for the same reason as the LLM client:
-    it maps to the provider's lenient tool-use, avoiding the strict structured-output failure class.
-    Never called by the unit test suite (tests inject a stub `VoiceScorer` per `docs/trd.md` §12);
-    the Portkey path is exercised in `tests/content/test_gateway.py` against a mocked transport.
+    Three transports, same prompt + same parsed `{"score", "violations"}` result: by default it
+    calls the Claude Messages API directly via `httpx` (tool-use / `anthropic`-SDK-free); when an
+    optional `PortkeyClient` is injected it instead sends the identical prompt through the Portkey
+    gateway's OpenAI-shaped `/chat/completions`, forcing the same schema via an OpenAI-style function
+    tool (`tools` + `tool_choice`) and reading the score out of
+    `choices[0].message.tool_calls[0].function.arguments`; when an optional local-Claude `LLMClient`
+    is injected (gateway `local_claude`) it goes through `LLMClient.complete(..., schema=...)` and
+    returns the dict verbatim, for a $0 subscription-billed run. Function calling (mapped by Portkey
+    to Anthropic tool-use) is used rather than `response_format` for the same reason as the LLM
+    client: it maps to the provider's lenient tool-use, avoiding the strict structured-output failure
+    class. Never called by the unit test suite (tests inject a stub `VoiceScorer` per `docs/trd.md`
+    §12); the Portkey + local paths are exercised in `tests/content/test_gateway.py` against mocked
+    transports.
     """
 
     _API_URL = "https://api.anthropic.com/v1/messages"
@@ -70,6 +83,7 @@ class LLMVoiceScorer:
         model: str | None = None,
         timeout: float = 30.0,
         portkey: PortkeyClient | None = None,
+        llm: LLMClient | None = None,
     ) -> None:
         self._api_key = (
             api_key if api_key is not None else os.environ.get("GEO_ANTHROPIC_API_KEY", "")
@@ -77,8 +91,17 @@ class LLMVoiceScorer:
         self._model = model or self._DEFAULT_MODEL
         self._timeout = timeout
         self._portkey = portkey
+        self._llm = llm
 
     def score(self, text: str, voice_profile: dict[str, Any]) -> dict[str, Any]:
+        if self._llm is not None:
+            local_result: dict[str, Any] = self._llm.complete(
+                system=_VOICE_SYSTEM,
+                prompt=self._prompt(text, voice_profile),
+                schema=self._input_schema(),
+            )
+            return local_result
+
         if self._portkey is not None:
             payload = self._portkey.chat_completion(
                 model=self._model,

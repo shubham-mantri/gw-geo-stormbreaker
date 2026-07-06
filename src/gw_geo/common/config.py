@@ -86,14 +86,25 @@ class Settings(BaseSettings):
     pinecone_index: str = "gw-geo-kb"
     embedding_model: str = "text-embedding-3-large"
 
-    # LLM + embedding gateway: route the content engine's calls through the Portkey gateway
-    # (provider routing / virtual keys live in the dashboard Config, not in code) or hit the
-    # providers directly. `"portkey"` needs a `portkey_api_key`; `"direct"` uses the per-provider
-    # keys above (`anthropic_api_key` / `openai_api_key`).
-    llm_gateway: str = "portkey"              # "portkey" | "direct"
+    # LLM gateway for the content-chat path (generation, seeding briefs, competitor suggestion,
+    # claim extraction, brand-voice scoring). `"local_claude"` (default) runs those calls through
+    # the local `claude -p` CLI on the user's Claude Max subscription -- $0 API cost, no key needed
+    # (see `content.llm_local.LocalClaudeCliClient` + the `claude_cli_*` settings below).
+    # `"portkey"` routes through the Portkey gateway (needs `portkey_api_key`; provider routing /
+    # virtual keys live in the dashboard Config, not in code). `"direct"` hits the providers
+    # directly via the per-provider keys above (`anthropic_api_key` / `openai_api_key`). Embeddings
+    # are never served by local Claude -- they always fall to Portkey (when keyed) or direct OpenAI.
+    llm_gateway: str = "local_claude"         # "local_claude" | "portkey" | "direct"
     portkey_api_key: str = ""
     portkey_base_url: str = "https://api.portkey.ai/v1"
     portkey_config: str = "pc-portke-0dd3de"  # dashboard Config id holding the provider virtual keys
+
+    # Local Claude CLI (llm_gateway="local_claude"): how `LocalClaudeCliClient` invokes `claude -p`.
+    # `claude_cli_config_dir` selects the Claude Max profile (expanduser'd at use); no API key.
+    claude_cli_bin: str = "claude"
+    claude_cli_config_dir: str = "~/.asterisk/Work"
+    claude_cli_model: str = "sonnet"
+    claude_cli_timeout_s: float = 300.0
 
     # M3 ranking (TRD §8)
     ranking_model_type: str = "gbt"           # "gbt" | "logreg"
