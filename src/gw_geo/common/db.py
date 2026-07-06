@@ -3,13 +3,21 @@
 Column names/types must match `docs/trd.md` §4 exactly. Every table except `Tenant` carries an
 indexed `tenant_id` foreign key (TRD §4 preamble + §7: "tenant_id on every row"), enforced here
 via `TenantScopedSession` so cross-tenant reads/writes are impossible by construction.
+
+Each `ForeignKey` column also declares a forward-only many-to-one `relationship()` (no
+`back_populates`, no cascade beyond the default save-update/merge). These relationships add no
+columns and change no delete behavior; their sole purpose is to give SQLAlchemy the inter-mapper
+dependency graph it needs to order flush INSERTs parent-before-child. A `ForeignKey` column alone
+does NOT establish that ordering, so on a FK-enforcing backend (Postgres, or SQLite with
+`PRAGMA foreign_keys=ON`) a multi-row commit could otherwise insert a child before its parent and
+raise a foreign-key violation.
 """
 
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.orm import DeclarativeBase, Mapped, Query, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, Query, mapped_column, relationship
 from sqlalchemy.orm import Session as SASession
 
 
@@ -49,6 +57,8 @@ class Brand(Base):
     knowledge_base_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+
 
 class Prompt(Base):
     __tablename__ = "prompt"
@@ -62,6 +72,9 @@ class Prompt(Base):
     persona: Mapped[str | None] = mapped_column(String, nullable=True)
     volume_estimate: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
 
 
 class ProbeRun(Base):
@@ -78,6 +91,9 @@ class ProbeRun(Base):
     raw_answer_s3_key: Mapped[str | None] = mapped_column(String, nullable=True)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship()
+    prompt: Mapped["Prompt"] = relationship()
 
 
 class AnswerExtraction(Base):
@@ -99,6 +115,9 @@ class AnswerExtraction(Base):
     competitors_present: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     raw_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
+    tenant: Mapped["Tenant"] = relationship()
+    probe_run: Mapped["ProbeRun"] = relationship()
+
 
 class Citation(Base):
     __tablename__ = "citation"
@@ -114,6 +133,10 @@ class Citation(Base):
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     seen_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+    prompt: Mapped["Prompt"] = relationship()
 
 
 class VisibilitySnapshot(Base):
@@ -134,6 +157,9 @@ class VisibilitySnapshot(Base):
     n_samples: Mapped[int] = mapped_column(Integer, nullable=False)
     ci_low: Mapped[float] = mapped_column(Float, nullable=False)
     ci_high: Mapped[float] = mapped_column(Float, nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
 
 
 class DriftEvent(Base):
@@ -177,6 +203,8 @@ class VisibilityRollup(Base):
     share_of_voice: Mapped[float] = mapped_column(Float)
     n_samples: Mapped[int] = mapped_column(Integer)
 
+    tenant: Mapped["Tenant"] = relationship()
+
 
 class Session(Base):
     """Lead-capture pixel session (m2-design §2.1/§8): one row per beaconed pageview.
@@ -198,6 +226,9 @@ class Session(Base):
     user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+
 
 class Lead(Base):
     """A captured lead (m2-design §2.1/§8), linked to its originating `session` when known.
@@ -218,6 +249,10 @@ class Lead(Base):
     crm_stage: Mapped[str | None] = mapped_column(String, nullable=True)
     self_reported_source: Mapped[str | None] = mapped_column(String, nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+    session: Mapped["Session | None"] = relationship()
 
 
 class AttributionLink(Base):
@@ -247,6 +282,13 @@ class AttributionLink(Base):
     value_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+    lead: Mapped["Lead | None"] = relationship()
+    session: Mapped["Session | None"] = relationship()
+    citation: Mapped["Citation | None"] = relationship()
+    prompt: Mapped["Prompt | None"] = relationship()
+
 
 class HoldoutCohort(Base):
     """A prompt/geo cohort for holdout incrementality (m2-design §2.5/§8).
@@ -267,6 +309,9 @@ class HoldoutCohort(Base):
     is_holdout: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+
 
 class Integration(Base):
     """A CRM/GA4 connection's persisted state (m2-design §5/§8).
@@ -283,6 +328,8 @@ class Integration(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     config_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    tenant: Mapped["Tenant"] = relationship()
 
 
 class AppUser(Base):
@@ -315,6 +362,9 @@ class Membership(Base):
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenant.id"), index=True, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False)
 
+    user: Mapped["AppUser"] = relationship()
+    tenant: Mapped["Tenant"] = relationship()
+
 
 class FeatureModel(Base):
     """A trained per-(tenant, brand, engine) ranking-model artifact (m3-design §6/§9-1).
@@ -336,6 +386,9 @@ class FeatureModel(Base):
     importances: Mapped[list[float]] = mapped_column(JSON, default=list, nullable=False)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     trained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
 
 
 class ContentAsset(Base):
@@ -367,6 +420,9 @@ class ContentAsset(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+
 
 class ContentGuardrailReport(Base):
     """Audit trail for the white-hat content gate (PRD NG1, m3-design §9-2): one row per guardrail
@@ -390,6 +446,9 @@ class ContentGuardrailReport(Base):
     passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    content_asset: Mapped["ContentAsset"] = relationship()
+
 
 class Opportunity(Base):
     """A ranked visibility gap surfaced to the user (m3-design §6/§9-5), e.g. "absent on Gemini".
@@ -412,6 +471,9 @@ class Opportunity(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+
 
 class BanditArm(Base):
     """One (content_variant x channel) arm of the Thompson-sampling bandit (m3-design §9-4).
@@ -432,6 +494,9 @@ class BanditArm(Base):
     pulls: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+
 
 class BanditReward(Base):
     """One observed reward event feeding a `BanditArm`'s posterior (m3-design §9-4).
@@ -449,6 +514,9 @@ class BanditReward(Base):
     reward: Mapped[float] = mapped_column(Float, nullable=False)
     source_snapshot_id: Mapped[str | None] = mapped_column(String, nullable=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship()
+    arm: Mapped["BanditArm"] = relationship()
 
 
 class SeedingChannel(Base):
@@ -524,6 +592,9 @@ class SeedingTask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+
 
 class RetrainJob(Base):
     """One triggered retraining run for an engine's ranking model (m4-design §3.1/§2.7): a
@@ -547,6 +618,8 @@ class RetrainJob(Base):
     model_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    trigger_drift_event: Mapped["DriftEvent"] = relationship()
 
 
 class EffortBanditArm(Base):
@@ -578,6 +651,9 @@ class EffortBanditArm(Base):
     reward_sq_sum: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand"] = relationship()
+
 
 class BillingAccount(Base):
     """A tenant's RaaS pricing plan (m4-design §4.2/§4.4): base fee + per-unit `usage_rates`
@@ -598,6 +674,8 @@ class BillingAccount(Base):
     currency: Mapped[str] = mapped_column(String, default="USD", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
+    tenant: Mapped["Tenant"] = relationship()
+
 
 class UsageEvent(Base):
     """One billable usage record (m4-design §4.1/§4.4) -- a probe run, content generation, or
@@ -617,6 +695,9 @@ class UsageEvent(Base):
         DateTime(timezone=True), default=_utcnow, index=True, nullable=False
     )
     source_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    tenant: Mapped["Tenant"] = relationship()
+    brand: Mapped["Brand | None"] = relationship()
 
 
 class BillingInvoice(Base):
@@ -639,6 +720,8 @@ class BillingInvoice(Base):
     total: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+    tenant: Mapped["Tenant"] = relationship()
 
 
 class TenantScopedSession:

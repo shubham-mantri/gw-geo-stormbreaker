@@ -12,14 +12,23 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from gw_geo.common.db import Base, Citation
+from gw_geo.common.db import Base, Brand, Citation, Prompt, Tenant
 from gw_geo.ranking.labels import cited_urls_for
 
 
 def _session() -> Session:
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
-    return Session(eng)
+    s = Session(eng)
+    # FK parents for the Citations these tests seed (citation -> tenant, brand, prompt). Extra
+    # rows with no citations don't affect cited_urls_for, which filters by the citation columns.
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Tenant(id="t2", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    s.add(Brand(id="b2", tenant_id="t1", name="b", domain="b.com"))
+    s.add(Prompt(id="p1", tenant_id="t1", brand_id="b1", text="q"))
+    s.commit()
+    return s
 
 
 def test_cited_urls_scoped_to_tenant_brand_engine() -> None:

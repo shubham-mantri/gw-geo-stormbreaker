@@ -14,12 +14,14 @@ from gw_geo.common.db import (
     Base,
     BillingAccount,
     BillingInvoice,
+    Brand,
     ComplianceRule,
     DriftEvent,
     EffortBanditArm,
     RetrainJob,
     SeedingChannel,
     SeedingTask,
+    Tenant,
     UsageEvent,
 )
 
@@ -27,7 +29,13 @@ from gw_geo.common.db import (
 def _session() -> Session:
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
-    return Session(eng)
+    s = Session(eng)
+    # The tenant-scoped roundtrips below seed rows under tenant t1 / brand b1; seed those FK
+    # parents once (the system-level tables ignore them).
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    s.commit()
+    return s
 
 
 def test_seeding_task_persists_report_json() -> None:

@@ -13,7 +13,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from gw_geo.common.db import Base
+from gw_geo.common.db import Base, Brand, Tenant
 from gw_geo.orchestration.bandit import UCB1Policy
 from gw_geo.orchestration.effort import allocate_effort, load_arms, record_reward
 
@@ -21,7 +21,12 @@ from gw_geo.orchestration.effort import allocate_effort, load_arms, record_rewar
 def _session() -> Session:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    return Session(engine)
+    session = Session(engine)
+    # FK parents for the EffortBanditArm rows record_reward persists (-> tenant, brand).
+    session.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    session.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    session.commit()
+    return session
 
 
 def test_record_reward_accumulates() -> None:

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from gw_geo.billing.metering import UsageKind, record_usage
 from gw_geo.billing.pricing import AttributedResults, PricingPlan
 from gw_geo.billing.views import billing_summary, invoice_history
-from gw_geo.common.db import Base, BillingInvoice
+from gw_geo.common.db import Base, BillingInvoice, Brand, Tenant
 
 
 class FakeAttribution:
@@ -28,6 +28,9 @@ def _session() -> Session:
 
 def test_billing_summary_composes_usage_and_raas():
     s = _session()
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    s.commit()
     record_usage(
         s, tenant_id="t1", brand_id="b1", kind=UsageKind.PROBE, quantity=1000, ts="2026-06-10"
     )
@@ -47,6 +50,8 @@ def test_billing_summary_composes_usage_and_raas():
 
 def test_invoice_history_newest_first():
     s = _session()
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.commit()
     s.add(BillingInvoice(
         id="i1", tenant_id="t1", period_start="2026-05-01",
         period_end="2026-06-01", base_fee=1000.0, usage_charges={}, raas_charge=0.0,
@@ -66,6 +71,8 @@ def test_invoice_history_is_deterministic_on_ties():
     # fix 8: rows sharing period_start AND created_at must order deterministically -- the stable
     # final tiebreaker is `id` ascending, so `total` (distinct per row) comes back i_a, i_b, i_c.
     s = _session()
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.commit()
     ts = datetime(2026, 7, 1, tzinfo=timezone.utc)
     for inv_id, total in (("i_c", 3.0), ("i_a", 1.0), ("i_b", 2.0)):
         s.add(BillingInvoice(

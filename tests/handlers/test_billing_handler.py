@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from gw_geo.billing.metering import UsageKind, record_usage
 from gw_geo.billing.pricing import AttributedResults, PricingPlan
-from gw_geo.common.db import Base, BillingInvoice
+from gw_geo.common.db import Base, BillingInvoice, Brand, Tenant
 from gw_geo.handlers.close_billing import handler
 
 
@@ -31,6 +31,8 @@ def _session() -> Session:
 
 def test_billing_handler_persists_invoice() -> None:
     session = _session()
+    session.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    session.commit()
     plan = PricingPlan(plan="growth", base_fee=500.0, usage_rates={})
 
     out = handler(
@@ -45,6 +47,9 @@ def test_billing_handler_persists_invoice() -> None:
 
 def test_billing_handler_prices_usage_and_raas_into_persisted_invoice() -> None:
     session = _session()
+    session.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    session.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    session.commit()
     record_usage(
         session,
         tenant_id="t1",
@@ -78,6 +83,8 @@ def test_billing_handler_prices_usage_and_raas_into_persisted_invoice() -> None:
 def test_billing_handler_is_idempotent_per_period() -> None:
     # A retried monthly cron must not double-insert a draft invoice for the same period.
     session = _session()
+    session.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    session.commit()
     plan = PricingPlan(plan="growth", base_fee=500.0, usage_rates={})
     event = {"tenant_id": "t1", "period_start": "2026-06-01", "period_end": "2026-07-01"}
 
@@ -91,6 +98,10 @@ def test_billing_handler_is_idempotent_per_period() -> None:
 
 def test_billing_handler_scopes_usage_by_tenant_and_period() -> None:
     session = _session()
+    session.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    session.add(Tenant(id="other-tenant", name="t", sampling_budget_daily=100.0))
+    session.add(Brand(id="b1", tenant_id="other-tenant", name="b", domain="b.com"))
+    session.commit()
     record_usage(
         session,
         tenant_id="other-tenant",

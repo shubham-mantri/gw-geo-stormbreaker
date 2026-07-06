@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from gw_geo.common.db import Base
+from gw_geo.common.db import Base, Brand, Tenant
 from gw_geo.seeding.briefs import SeedingBrief
 from gw_geo.seeding.compliance import ComplianceEngine, ComplianceError, PlacementProposal
 from gw_geo.seeding.workflow import (  # SeedingTask re-exported or from db
@@ -30,6 +30,11 @@ def _wf():
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
     s = Session(eng)
+    # Seed the FK parents every workflow task references (SeedingTask.tenant_id -> tenant.id,
+    # .brand_id -> brand.id) before wf.create() inserts tasks under FK enforcement.
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    s.commit()
     return SeedingWorkflow(s, tenant_id="t1", engine=ComplianceEngine(ComplianceEngine.default_ruleset())), s
 
 
