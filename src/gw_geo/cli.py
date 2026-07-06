@@ -4,6 +4,7 @@
     python -m gw_geo.cli rank --brand <id> --engines perplexity,openai --input ranking_input.json
     python -m gw_geo.cli schedule [--brand <id> --tenant <id>] --engines perplexity --interval 24h
     python -m gw_geo.cli opportunities --brand <id> [--tenant <id>]
+    python -m gw_geo.cli reconcile --brand <id> [--tenant <id>] [--since YYYY-MM-DD --until ...]
 
 `measure` wires real dependencies via `gw_geo.common.wiring.build_runtime` and drives the same
 `gw_geo.measurement.runner.run_measurement` pipeline that the Lambda handler
@@ -13,12 +14,16 @@
 re-runs `gw_geo.measurement.trigger.run_measurement_job` for one brand, one tenant's brands, or
 every brand, every `--interval`. `opportunities` (re)generates a brand's ranked opportunity queue
 from its live visibility data via `gw_geo.orchestration.opportunity_gen.run_opportunity_refresh_job`
--- the same local job the `POST /brands/{id}/opportunities/refresh` endpoint schedules.
+-- the same local job the `POST /brands/{id}/opportunities/refresh` endpoint schedules. `reconcile`
+runs the fuzzy attribution writers (direct/citation/assisted) over a brand's captured sessions+leads
+and persists the `attribution_link` rows the pipeline reads, via
+`gw_geo.attribution.trigger.run_attribution_reconcile_job` -- the same local job the
+`POST /brands/{id}/attribution/reconcile` endpoint schedules.
 
 Every pipeline entry point (`build_runtime`, `run_measurement`, `run_measurement_job`,
-`build_ranking_inputs`, `run_ranking`, `run_opportunity_refresh_job`) is imported by name into this
-module (rather than referenced through its owning module) so tests can patch it as
-`gw_geo.cli.<name>`.
+`build_ranking_inputs`, `run_ranking`, `run_opportunity_refresh_job`,
+`run_attribution_reconcile_job`) is imported by name into this module (rather than referenced
+through its owning module) so tests can patch it as `gw_geo.cli.<name>`.
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ from typing import Any
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from gw_geo.attribution.trigger import run_attribution_reconcile_job
 from gw_geo.common.config import Settings, get_settings
 from gw_geo.common.db import Brand
 from gw_geo.common.models import FeatureVector, SourceType
@@ -168,6 +174,28 @@ def _build_parser() -> argparse.ArgumentParser:
     opportunities.add_argument(
         "--tenant", default="default", help="Tenant id that owns the brand (default: %(default)s)"
     )
+
+    reconcile = subparsers.add_parser(
+        "reconcile",
+        help="Run the fuzzy attribution writers (direct/citation/assisted) over captured "
+        "sessions+leads and persist the attribution_link rows the pipeline reads",
+    )
+    reconcile.add_argument(
+        "--brand", required=True, help="Brand id to reconcile attribution for"
+    )
+    reconcile.add_argument(
+        "--tenant", default="default", help="Tenant id that owns the brand (default: %(default)s)"
+    )
+    reconcile.add_argument(
+        "--since",
+        default=None,
+        help="Inclusive window start YYYY-MM-DD (default: the job's trailing look-back window)",
+    )
+    reconcile.add_argument(
+        "--until",
+        default=None,
+        help="Inclusive window end YYYY-MM-DD (default: today, UTC)",
+    )
     return parser
 
 
@@ -186,6 +214,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_schedule(args)
     if args.command == "opportunities":
         return _run_opportunities(args)
+    if args.command == "reconcile":
+        return _run_reconcile(args)
     return 1
 
 
@@ -396,6 +426,20 @@ def _run_opportunities(args: argparse.Namespace) -> int:
     """
     count = run_opportunity_refresh_job(tenant_id=args.tenant, brand_id=args.brand)
     print(json.dumps({"brand_id": args.brand, "opportunities": count}, indent=2))
+    return 0
+
+
+def _run_reconcile(args: argparse.Namespace) -> int:
+    """Run the fuzzy attribution writers over a brand's captured sessions+leads, locally.
+
+    Delegates to the same `run_attribution_reconcile_job` unit the API endpoint schedules (which
+    owns its own DB session), so the CLI and endpoint never diverge. Prints the per-method link
+    counts as JSON and returns the process exit code (`0` on success).
+    """
+    counts = run_attribution_reconcile_job(
+        tenant_id=args.tenant, brand_id=args.brand, since=args.since, until=args.until
+    )
+    print(json.dumps({"brand_id": args.brand, "attribution_links": counts}, indent=2))
     return 0
 
 

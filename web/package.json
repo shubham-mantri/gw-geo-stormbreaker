@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "build:pixel": "esbuild pixel/gwgeo.ts --bundle --minify --format=iife --target=es2020 --outfile=public/gwgeo.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test"
@@ -37,6 +38,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.28.1",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.15",
     "jsdom": "^25.0.1",

@@ -45,13 +45,6 @@ from gw_geo.common.db import Brand, Prompt, TenantScopedSession
 
 router = APIRouter(tags=["settings"])
 
-# The pixel SDK is a static asset (`web/public/gwgeo.js`, m2-design.md §6) built and hosted by the
-# `web/` app; no CDN/base-url setting exists yet in `Settings` for it (out of scope for this task --
-# flagged in the task report's CONCERNS). This constant is the placeholder until that config knob
-# lands; the exact host is invisible to callers (the response is only ever asserted on for
-# `"gwgeo.js"`/`"data-key="` substrings, never the full URL).
-_PIXEL_SNIPPET_SRC = "https://cdn.gwgeo.io/gwgeo.js"
-
 
 def _reject_foreign_brand(session: SASession, *, tenant_id: str, brand_id: str) -> None:
     """Raise :class:`LookupError` iff ``brand_id`` names a *real* brand owned by another tenant.
@@ -169,7 +162,18 @@ def get_snippet(
     ``brand_id``, carrying a write-key minted for the *caller's own* tenant (from the token, never
     client-supplied) via ``attribution.ingest.mint_write_key`` (the ``resolve_write_key`` inverse,
     T05). Requires ``role >= editor`` (review fix #4): the minted write-key is a credential, so
-    reading it is gated like the sibling write endpoints (a ``viewer`` token -> 403)."""
+    reading it is gated like the sibling write endpoints (a ``viewer`` token -> 403).
+
+    The ``src`` points at the LOCAL, self-hosted pixel (``settings.pixel_url`` ->
+    ``GET /pixel/gwgeo.js`` on this backend), never a CDN (W4). ``data-api`` carries
+    ``settings.pixel_api_base`` -- the origin the pixel beacons ``POST /lead-capture/collect`` to --
+    so the whole capture path stays local; both are env-overridable per deployment.
+    """
     _reject_foreign_brand(session, tenant_id=scoped.tenant_id, brand_id=brand_id)
     key = mint_write_key(scoped.tenant_id, brand_id, salt=settings.pixel_write_key_salt)
-    return SnippetOut(snippet=f'<script src="{_PIXEL_SNIPPET_SRC}" data-key="{key}"></script>')
+    return SnippetOut(
+        snippet=(
+            f'<script src="{settings.pixel_url}" data-key="{key}" '
+            f'data-api="{settings.pixel_api_base}"></script>'
+        )
+    )

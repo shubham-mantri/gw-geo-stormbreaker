@@ -60,3 +60,44 @@ def test_cli_opportunities_tenant_defaults():
         rc = cli.main(["opportunities", "--brand", "b1"])
     assert rc == 0
     assert job.call_args.kwargs["tenant_id"] == "default"
+
+
+def test_cli_reconcile_invokes_reconcile_job():
+    """`reconcile` delegates to run_attribution_reconcile_job with brand/tenant/window, rc 0."""
+    with patch(
+        "gw_geo.cli.run_attribution_reconcile_job",
+        return_value={"direct": 1, "citation_linked": 0, "assisted": 0},
+    ) as job:
+        rc = cli.main(
+            [
+                "reconcile",
+                "--brand",
+                "b1",
+                "--tenant",
+                "t1",
+                "--since",
+                "2026-06-01",
+                "--until",
+                "2026-07-02",
+            ]
+        )
+    assert rc == 0
+    job.assert_called_once()
+    kwargs = job.call_args.kwargs
+    assert kwargs["brand_id"] == "b1"
+    assert kwargs["tenant_id"] == "t1"
+    assert kwargs["since"] == "2026-06-01"
+    assert kwargs["until"] == "2026-07-02"
+
+
+def test_cli_reconcile_window_defaults_to_none():
+    """`--since`/`--until` default to None (the job resolves its own trailing window)."""
+    with patch(
+        "gw_geo.cli.run_attribution_reconcile_job",
+        return_value={"direct": 0, "citation_linked": 0, "assisted": 0},
+    ) as job:
+        rc = cli.main(["reconcile", "--brand", "b1"])
+    assert rc == 0
+    kwargs = job.call_args.kwargs
+    assert kwargs["tenant_id"] == "default"
+    assert kwargs["since"] is None and kwargs["until"] is None
