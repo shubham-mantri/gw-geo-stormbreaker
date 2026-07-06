@@ -6,7 +6,9 @@ import {
   Bell,
   DollarSign,
   Eye,
+  FileText,
   LayoutDashboard,
+  Lightbulb,
   Network,
   Settings,
   type LucideIcon,
@@ -16,11 +18,13 @@ import { cn } from "@/lib/utils";
 
 type NavItem = { label: string; href: string; icon: LucideIcon };
 
-/** The six M2 dashboard screens (ui-spec §7). M3+ adds Opportunities/Content. */
+/** The dashboard screens, in ui-spec §2 order (M3 adds Opportunities + Content). */
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", href: "/overview", icon: LayoutDashboard },
   { label: "Visibility", href: "/visibility", icon: Eye },
   { label: "Sources", href: "/sources", icon: Network },
+  { label: "Opportunities", href: "/opportunities", icon: Lightbulb },
+  { label: "Content", href: "/content", icon: FileText },
   { label: "Pipeline", href: "/pipeline", icon: DollarSign },
   { label: "Alerts", href: "/alerts", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings },

@@ -16,6 +16,13 @@ const nextConfig = {
     // Only the backend's own path prefixes are proxied. They never collide with the dashboard's
     // top-level page routes: the pages live at the root (/overview, /visibility, /pipeline, …),
     // while the API's equivalents live under /brands/{id}/… — so proxying /brands/* is safe.
+    //
+    // /content/* and /opportunities/* need a word on collision: the dashboard now *also* has pages
+    // at /content and /opportunities. This array form of rewrites is applied as `afterFiles` — after
+    // the filesystem/page routes — so the exact page routes win, while only the backend's deeper
+    // API paths (/content/generate, /content/{id}/approve|publish, /opportunities/{id}/act) fall
+    // through to the proxy. (The list `/brands/{id}/opportunities` + `.../opportunities/refresh`
+    // are already covered by /brands/:path*.)
     const proxy = (source) => ({ source, destination: `${apiProxyTarget}${source}` });
     return [
       proxy("/auth/:path*"),
@@ -23,6 +30,8 @@ const nextConfig = {
       proxy("/brands/:path*"),
       proxy("/integrations/:path*"),
       proxy("/lead-capture/:path*"),
+      proxy("/content/:path*"),
+      proxy("/opportunities/:path*"),
       proxy("/healthz"),
     ];
   },
