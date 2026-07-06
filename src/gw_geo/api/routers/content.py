@@ -8,38 +8,38 @@ be reached with a client-supplied draft: the id resolves the *server-side* autho
 (``ApprovalError`` -> **409**). Nothing publishes without a passing ``GuardrailReport`` *and* an
 authorized approval -- the Athena failure, made structurally impossible.
 
-The id resolution is also **tenant-scoped**: ``get_asset``/``approve``/``publish`` all take
+``POST /brands/{id}/kb/facts`` populates a brand's grounding corpus (RBAC ``editor``+): each fact is
+embedded + upserted into the brand's per-brand :class:`~gw_geo.content.kb.KnowledgeBase`, which is
+what ``/content/generate`` then grounds and claim-verifies against. This is how a brand goes from an
+empty KB (generation falls back to generic, non-factual guidance) to one that can state real,
+checkable facts.
+
+The id resolution is **tenant-scoped**: ``get_asset``/``approve``/``publish`` all take
 ``tenant_id=principal.tenant_id`` (never a client-supplied value) and raise ``LookupError`` --
 mapped to **404** by ``app.py``, same as an unowned brand -- when the id isn't found for that
 tenant. A tenant-B token can therefore never approve/publish/read tenant-A's draft by guessing its
-id: the 404 is indistinguishable from "doesn't exist at all", so it doesn't even confirm the id
-exists under another tenant.
+id: the 404 is indistinguishable from "doesn't exist at all". The generate + KB-ingest endpoints
+likewise hydrate the target brand under the caller's own tenant (``scoped_session``), 404-ing an
+unowned brand exactly like ``routers/brands.py`` -- so a tenant can only draft/ingest for its own
+brands, and ``tenant_id`` is always the token's, never the request body.
 
-The :class:`ContentService` is **injected** via :func:`get_content_service` so the router is tested
-with a stub + ``app.dependency_overrides`` (no live LLM/guardrail/connector call), mirroring how the
-rest of the M2 API injects its collaborators. The default :func:`get_content_service` *raises*: the
-real, app-level construction of a ``ContentService`` is a follow-on (like M2's SecretProvider
-gaps). It is deliberately not wired in :func:`create_app` because it would require per-request,
-per-brand construction (the KB is brand-scoped) plus real corpus/claim/voice/connector backends and
-config -- none of which can be built lazily at app-construction time without I/O. Until that lands,
-``create_app`` mounts the router but leaves ``get_content_service`` raising; every caller overrides
-it (production wiring will register a real provider the same way).
-
-Tenant is always taken from the bearer token's :class:`Principal` (never the request body), so a
-generated draft is scoped to the caller's own tenant by construction. Full brand-ownership
-validation + KB grounding + ranking-profile shaping on ``generate`` are part of that same
-real-wiring follow-on; today ``generate`` binds the draft to ``principal.tenant_id`` and passes the
-prompt through to the injected service.
+:class:`ContentService` and the per-brand ``kb_factory`` are **injected** via
+:func:`get_content_service` / :func:`get_kb_factory`, so the router is tested with fakes +
+``app.dependency_overrides`` (no live LLM/embedding/DB call). Both defaults *raise*;
+:func:`gw_geo.api.app.create_app` overrides them with the real, per-request, DB-backed providers,
+and tests override them with hermetic fakes -- the same seam ``leadcapture.get_db_session`` uses.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from gw_geo.api.auth import Principal
-from gw_geo.api.deps import get_current_principal, require_role
+from gw_geo.api.deps import get_current_principal, require_role, scoped_session
 from gw_geo.api.schemas import (
     ContentApproveResponse,
     ContentGenerateRequest,
@@ -47,9 +47,14 @@ from gw_geo.api.schemas import (
     ContentPublishRequest,
     ContentPublishResponse,
     GuardrailBadges,
+    KbFactIn,
+    KbFactsIngested,
 )
-from gw_geo.common.models import Brand
+from gw_geo.common.db import Brand as BrandRow
+from gw_geo.common.db import TenantScopedSession
+from gw_geo.common.models import Brand, Fact
 from gw_geo.content.approval import ApprovalError
+from gw_geo.content.kb import KnowledgeBase
 from gw_geo.content.pipeline import ContentService
 
 router = APIRouter(tags=["content"])
@@ -58,32 +63,66 @@ router = APIRouter(tags=["content"])
 def get_content_service() -> ContentService:
     """Injected :class:`ContentService` provider.
 
-    The default **raises**: real app-level wiring is a follow-on (see the module docstring). Tests
-    (and real production wiring) override this via ``app.dependency_overrides[get_content_service]``.
+    The default **raises**: :func:`gw_geo.api.app.create_app` overrides it with a real, per-request
+    provider (DB-backed store + per-brand KB + gateway-built LLM/guardrails), and tests override it
+    with hermetic fakes -- both via ``app.dependency_overrides[get_content_service]``.
     """
     raise RuntimeError("content service not configured")
+
+
+def get_kb_factory() -> Callable[[str], KnowledgeBase]:
+    """Injected per-brand ``KnowledgeBase`` factory (``brand_id -> KnowledgeBase``).
+
+    The default **raises**: :func:`gw_geo.api.app.create_app` overrides it with
+    :func:`gw_geo.content.gateway.build_kb_factory` (from ``Settings``), and tests override it with
+    an in-memory fake -- both via ``app.dependency_overrides[get_kb_factory]``.
+    """
+    raise RuntimeError("kb factory not configured")
+
+
+def _hydrate_owned_brand(
+    scoped: TenantScopedSession, brand_id: str, tenant_id: str
+) -> Brand:
+    """Load `brand_id` as a domain :class:`Brand`, 404-ing if it isn't the caller's tenant's.
+
+    Mirrors ``routers/brands.py``'s ``_ensure_brand_owned``: "doesn't exist" and "belongs to another
+    tenant" collapse to the same :class:`LookupError` (-> 404), never confirming a foreign brand's
+    existence. ``tenant_id`` is stamped from the principal (never the DB row's own value would
+    differ, but this keeps the token as the sole source of tenancy)."""
+    row = scoped.query_brands().filter(BrandRow.id == brand_id).first()
+    if row is None:
+        raise LookupError(f"brand {brand_id!r} not found")
+    return Brand(
+        id=row.id,
+        tenant_id=tenant_id,
+        name=row.name,
+        domain=row.domain,
+        competitors=list(row.competitors),
+    )
 
 
 @router.post("/content/generate", response_model=ContentGenerateResponse)
 def generate_content(
     body: ContentGenerateRequest,
     principal: Annotated[Principal, Depends(get_current_principal)],
+    scoped: Annotated[TenantScopedSession, Depends(scoped_session)],
     svc: Annotated[ContentService, Depends(get_content_service)],
 ) -> ContentGenerateResponse:
     """``POST /content/generate`` (ui-spec §6) -- draft grounded content + run the guardrails.
 
-    Returns ``{content_id, draft, guardrails:{claims_ok, originality_ok}}`` (ui-spec §6 verbatim).
-    The draft is scoped to the caller's own tenant (``principal.tenant_id``, never the body). No
-    RBAC gate on drafting itself -- the human gate is at approve/publish.
+    Hydrates the real :class:`Brand` from the DB under the caller's own tenant (an unowned/unknown
+    brand -> **404**, never a tenant leak), retrieves the grounding facts from that brand's KB
+    (``svc.ground``), and generates a draft grounded in exactly those facts. Returns
+    ``{content_id, draft, guardrails:{claims_ok, originality_ok}}`` (ui-spec §6 verbatim). The draft
+    is scoped to the caller's own tenant (``principal.tenant_id``, never the body). No RBAC gate on
+    drafting itself -- the human gate is at approve/publish.
     """
-    # Brand name/domain are placeholders here (cosmetic in the generation prompt); real brand
-    # hydration + ownership validation + KB grounding are the real-wiring follow-on (see module
-    # docstring). The security-critical field, ``tenant_id``, comes from the token, never the body.
-    brand = Brand(id=body.brand_id, tenant_id=principal.tenant_id, name=body.brand_id, domain="")
+    brand = _hydrate_owned_brand(scoped, body.brand_id, principal.tenant_id)
+    facts = svc.ground(brand_id=brand.id, prompt_text=body.prompt_text)
     draft, report = svc.generate(
         brand=brand,
         prompt_text=body.prompt_text,
-        facts=[],
+        facts=facts,
         feature_profile=None,
         target_engine=body.target_engine,
     )
@@ -141,3 +180,39 @@ async def publish_content(
     except ApprovalError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return ContentPublishResponse(status="published", published_url=result.published_url)
+
+
+@router.post(
+    "/brands/{brand_id}/kb/facts",
+    response_model=KbFactsIngested,
+    dependencies=[Depends(require_role("editor"))],
+)
+def ingest_kb_facts(
+    brand_id: str,
+    body: list[KbFactIn],
+    scoped: Annotated[TenantScopedSession, Depends(scoped_session)],
+    kb_factory: Annotated[Callable[[str], KnowledgeBase], Depends(get_kb_factory)],
+) -> KbFactsIngested:
+    """``POST /brands/{id}/kb/facts`` -- populate a brand's grounding corpus (RBAC ``editor``+).
+
+    Body is a list of ``{text, category?, source?}``. Each is embedded + upserted into the brand's
+    per-brand KB as a :class:`Fact` with a server-assigned id and ``brand_id`` (never client-set, so
+    a caller can't write into another brand's corpus). Requires ``role >= editor`` (a ``viewer`` ->
+    **403**, via the route dependency) and brand ownership under the caller's tenant (an
+    unowned/unknown brand -> **404**). Returns ``{added}`` -- the number of facts ingested.
+    """
+    # Ownership check (mirrors routers/brands.py); RBAC (editor+) enforced by the route dependency.
+    if scoped.query_brands().filter(BrandRow.id == brand_id).first() is None:
+        raise LookupError(f"brand {brand_id!r} not found")
+    kb = kb_factory(brand_id)
+    for item in body:
+        kb.add_fact(
+            Fact(
+                id=uuid4().hex,
+                brand_id=brand_id,
+                text=item.text,
+                category=item.category,
+                source=item.source,
+            )
+        )
+    return KbFactsIngested(added=len(body))

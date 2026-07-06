@@ -23,7 +23,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as SASession
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
-from gw_geo.api import auth
+from gw_geo.api import auth, wiring
 from gw_geo.api.auth import AuthError, TokenPair
 from gw_geo.api.deps import get_db_session, get_settings_dep
 from gw_geo.api.routers import brands, content, leadcapture, opportunities, pipeline, visibility
@@ -177,5 +177,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # the real (unscoped) session provider so the beacon can write. Its per-brand write-key -- not a
     # JWT -- authorizes it, so it never uses the tenant-scoped deps.
     app.dependency_overrides[leadcapture.get_db_session] = get_db_session
+
+    # Content + opportunities services: the routers ship raising defaults (so tests inject fakes);
+    # point them at the real, per-request, DB-backed providers (see `api/wiring.py`). Building these
+    # opens no connection -- the gateway/vector clients connect lazily -- so the "no I/O at app
+    # construction" guarantee holds. Tests replace these overrides with hermetic fakes.
+    app.dependency_overrides[content.get_content_service] = wiring.content_service_provider
+    app.dependency_overrides[content.get_kb_factory] = wiring.kb_factory_provider
+    app.dependency_overrides[opportunities.get_opportunity_service] = (
+        wiring.opportunity_service_provider
+    )
 
     return app
