@@ -359,3 +359,16 @@ class OpportunityActResponse(BaseModel):
     draft the "Fix this ▸" action spawned via the content pipeline (T22)."""
 
     content_id: str
+
+
+class OpportunityRefreshAccepted(BaseModel):
+    """``POST /brands/{id}/opportunities/refresh`` **202** response (W3) -- acknowledges that
+    opportunity generation was scheduled onto a background task.
+
+    Like :class:`MeasureAccepted`, this is an acknowledgement, not a result: the ranking + persist
+    run happens asynchronously (never inline in the request), so the caller gets ``brand_id`` back
+    and then reads the fresh queue from ``GET /brands/{id}/opportunities``.
+    """
+
+    status: str
+    brand_id: str

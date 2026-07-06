@@ -39,3 +39,24 @@ def test_cli_accepts_new_m1_engines():
     assert rc == 0
     kwargs = run.await_args.kwargs
     assert kwargs["engines"] == ["gemini", "chatgpt"]
+
+
+def test_cli_opportunities_invokes_refresh_job():
+    """`opportunities` delegates to run_opportunity_refresh_job with the brand + tenant, rc 0."""
+    with patch("gw_geo.cli.run_opportunity_refresh_job", return_value=3) as job:
+        rc = cli.main(
+            ["opportunities", "--brand", "demo-brand", "--tenant", "demo-tenant"]
+        )
+    assert rc == 0
+    job.assert_called_once()
+    kwargs = job.call_args.kwargs
+    assert kwargs["brand_id"] == "demo-brand"
+    assert kwargs["tenant_id"] == "demo-tenant"
+
+
+def test_cli_opportunities_tenant_defaults():
+    """`--tenant` defaults to 'default' (matching measure/rank) when omitted."""
+    with patch("gw_geo.cli.run_opportunity_refresh_job", return_value=0) as job:
+        rc = cli.main(["opportunities", "--brand", "b1"])
+    assert rc == 0
+    assert job.call_args.kwargs["tenant_id"] == "default"
