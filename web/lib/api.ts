@@ -3,8 +3,16 @@ import type {
   Alert,
   Brand,
   BrandCreated,
+  ContentApproveResponse,
+  ContentGenerateResponse,
+  ContentPublishResponse,
   IntegrationKind,
   IntegrationResult,
+  KbFactIn,
+  KbFactsIngested,
+  Opportunity,
+  OpportunityActResponse,
+  OpportunityRefreshAccepted,
   Overview,
   Pipeline,
   Prompt,
@@ -50,6 +58,24 @@ export type ApiClient = {
   pipeline(brandId: string, range: string): Promise<Pipeline>;
   alerts(brandId: string): Promise<Alert[]>;
   prompts(brandId: string): Promise<Prompt[]>;
+  // Opportunities (3.4)
+  opportunities(brandId: string): Promise<Opportunity[]>;
+  /** `POST /brands/{id}/opportunities/refresh` — 202; then re-read `opportunities`. */
+  refreshOpportunities(brandId: string): Promise<OpportunityRefreshAccepted>;
+  /** `POST /opportunities/{id}/act` — spawn a pre-scoped content draft; returns its `content_id`. */
+  actOnOpportunity(opportunityId: string): Promise<OpportunityActResponse>;
+  // Content engine (3.5)
+  /** `POST /brands/{id}/kb/facts` — populate the grounding corpus (role ≥ editor). */
+  ingestKbFacts(brandId: string, facts: KbFactIn[]): Promise<KbFactsIngested>;
+  generateContent(input: {
+    brand_id: string;
+    prompt_text: string;
+    target_engine?: string;
+  }): Promise<ContentGenerateResponse>;
+  /** `POST /content/{id}/approve` — human gate (role ≥ editor); 409 if guardrails/role fail. */
+  approveContent(contentId: string): Promise<ContentApproveResponse>;
+  /** `POST /content/{id}/publish` — publish an approved draft (role ≥ editor); 409 if not approved. */
+  publishContent(contentId: string, connector?: string): Promise<ContentPublishResponse>;
   // Writes (Settings)
   createBrand(input: {
     name: string;
@@ -119,6 +145,37 @@ export function apiClient(
       request<Pipeline>(`${brandPath(brandId)}/pipeline${queryString({ range })}`),
     alerts: (brandId) => request<Alert[]>(`${brandPath(brandId)}/alerts`),
     prompts: (brandId) => request<Prompt[]>(`${brandPath(brandId)}/prompts`),
+    opportunities: (brandId) =>
+      request<Opportunity[]>(`${brandPath(brandId)}/opportunities`),
+    refreshOpportunities: (brandId) =>
+      request<OpportunityRefreshAccepted>(`${brandPath(brandId)}/opportunities/refresh`, {
+        method: "POST",
+      }),
+    actOnOpportunity: (opportunityId) =>
+      request<OpportunityActResponse>(
+        `/opportunities/${encodeURIComponent(opportunityId)}/act`,
+        { method: "POST" },
+      ),
+    ingestKbFacts: (brandId, facts) =>
+      request<KbFactsIngested>(`${brandPath(brandId)}/kb/facts`, {
+        method: "POST",
+        body: JSON.stringify(facts),
+      }),
+    generateContent: (input) =>
+      request<ContentGenerateResponse>("/content/generate", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    approveContent: (contentId) =>
+      request<ContentApproveResponse>(
+        `/content/${encodeURIComponent(contentId)}/approve`,
+        { method: "POST" },
+      ),
+    publishContent: (contentId, connector = "hosted") =>
+      request<ContentPublishResponse>(
+        `/content/${encodeURIComponent(contentId)}/publish`,
+        { method: "POST", body: JSON.stringify({ connector }) },
+      ),
     createBrand: (input) =>
       request<BrandCreated>("/brands", {
         method: "POST",

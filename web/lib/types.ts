@@ -119,3 +119,67 @@ export type Alert = {
 export type IntegrationKind = "crm" | "ga4" | "cms" | "lead_capture" | (string & {});
 export type IntegrationResult = { status: string };
 export type SnippetResponse = { snippet: string };
+
+// ── Opportunities (3.4) ───────────────────────────────────────────────────────
+// The ranked-gap row shape (ui-spec §6 / OpportunityOut, verbatim). The underlying
+// tenant_id/brand_id/source_gap/status stay server-side and are not exposed here.
+export type Opportunity = {
+  id: string;
+  title: string;
+  rationale: string;
+  /** Estimated impact (engine weight × gap size, 0..1) — rendered as a %. */
+  est_impact: number;
+  /** The engine the gap is on, or null for a cross-engine / absence gap. */
+  engine: string | null;
+};
+
+/** `POST /opportunities/{id}/act` → the content draft the "Fix this" action spawned. */
+export type OpportunityActResponse = { content_id: string };
+
+/** `POST /brands/{id}/opportunities/refresh` → 202 acknowledgement (async re-rank). */
+export type OpportunityRefreshAccepted = { status: string; brand_id: string };
+
+// ── Content engine (3.5) ──────────────────────────────────────────────────────
+export type ContentStatus =
+  | "draft"
+  | "pending_review"
+  | "approved"
+  | "published"
+  | "rejected"
+  | (string & {});
+
+/**
+ * The server-authoritative draft returned by `POST /content/generate` (mirrors
+ * `gw_geo.common.models.ContentDraft`). The screen renders `title` + `body_markdown`
+ * and carries `id` (= content_id) into the approve/publish gate.
+ */
+export type ContentDraft = {
+  id: string;
+  tenant_id: string;
+  brand_id: string;
+  prompt_id: string | null;
+  target_engine: string | null;
+  intent_cluster: string | null;
+  title: string;
+  body_markdown: string;
+  schema_jsonld: Record<string, unknown>;
+  grounded_fact_ids: string[];
+  status: ContentStatus;
+};
+
+/** One fact in the `POST /brands/{id}/kb/facts` ingest body. */
+export type KbFactIn = { text: string; category?: string; source?: string };
+/** `POST /brands/{id}/kb/facts` → how many facts were embedded + upserted. */
+export type KbFactsIngested = { added: number };
+
+/** The two guardrail badges the Content screen renders (ui-spec §6). */
+export type GuardrailBadges = { claims_ok: boolean; originality_ok: boolean };
+
+export type ContentGenerateResponse = {
+  content_id: string;
+  draft: ContentDraft;
+  guardrails: GuardrailBadges;
+};
+
+export type ContentApproveResponse = { status: string };
+export type ContentPublishResponse = { status: string; published_url: string };

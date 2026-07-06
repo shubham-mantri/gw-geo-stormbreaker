@@ -27,6 +27,8 @@ import {
 import type {
   Alert,
   Brand,
+  ContentGenerateResponse,
+  Opportunity,
   Overview,
   Pipeline,
   Prompt,
@@ -49,6 +51,9 @@ export type MockApiOverrides = {
   alerts?: Alert[];
   prompts?: Prompt[];
   snippet?: SnippetResponse;
+  opportunities?: Opportunity[];
+  /** Canned `POST /content/generate` result (Content screen). */
+  content?: ContentGenerateResponse;
 };
 
 const DEFAULT_BRANDS: Brand[] = [
@@ -77,6 +82,24 @@ const DEFAULTS: Required<MockApiOverrides> = {
   alerts: [],
   prompts: [],
   snippet: { snippet: "" },
+  opportunities: [],
+  content: {
+    content_id: "c1",
+    draft: {
+      id: "c1",
+      tenant_id: "t1",
+      brand_id: "b1",
+      prompt_id: null,
+      target_engine: null,
+      intent_cluster: null,
+      title: "Draft title",
+      body_markdown: "Draft body.",
+      schema_jsonld: {},
+      grounded_fact_ids: [],
+      status: "draft",
+    },
+    guardrails: { claims_ok: true, originality_ok: true },
+  },
 };
 
 /**
@@ -94,6 +117,15 @@ export function mockApi(overrides: MockApiOverrides = {}): ApiClient {
     pipeline: () => Promise.resolve(data.pipeline),
     alerts: () => Promise.resolve(data.alerts),
     prompts: () => Promise.resolve(data.prompts),
+    opportunities: () => Promise.resolve(data.opportunities),
+    refreshOpportunities: (brandId) =>
+      Promise.resolve({ status: "accepted", brand_id: brandId }),
+    actOnOpportunity: () => Promise.resolve({ content_id: "spawned-content" }),
+    ingestKbFacts: (_brandId, facts) => Promise.resolve({ added: facts.length }),
+    generateContent: () => Promise.resolve(data.content),
+    approveContent: () => Promise.resolve({ status: "approved" }),
+    publishContent: () =>
+      Promise.resolve({ status: "published", published_url: "https://hosted.gwgeo.io/p/c1" }),
     createBrand: () => Promise.resolve({ id: "new-brand" }),
     savePrompts: (_brandId, prompts) => Promise.resolve(prompts),
     connectIntegration: () => Promise.resolve({ status: "connected" }),
