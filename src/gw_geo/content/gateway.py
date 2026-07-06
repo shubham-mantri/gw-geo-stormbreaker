@@ -24,7 +24,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from sqlalchemy.orm import Session as SASession
+
 from gw_geo.common.config import Settings
+from gw_geo.common.db import LlmModelConfig
 from gw_geo.common.portkey import PortkeyClient
 from gw_geo.content.generate import AnthropicLLMClient, LLMClient, PortkeyLLMClient
 from gw_geo.content.guardrails.brand_voice import LLMVoiceScorer, VoiceScorer
@@ -42,6 +45,25 @@ from gw_geo.content.llm_local import LocalClaudeCliClient
 DEFAULT_CHAT_MODEL = "claude-haiku-4-5-20251001"
 
 
+def resolve_chat_model(session: SASession, *, gateway: str, settings: Settings) -> str:
+    """The operator-selected content-chat model for `gateway`, or today's constant fallback.
+
+    Reads `llm_model_config.chat_model` for the active `gateway` (the env-driven `GEO_LLM_GATEWAY`,
+    passed by the caller -- the gateway itself is *not* DB-stored, only the model is). When no row
+    exists (a fresh DB never migrated/seeded, or a gateway an operator never configured) it falls
+    back to exactly the constants the factories use with `model=None`, so a migrated and an
+    un-migrated DB behave identically: `settings.claude_cli_model` for `local_claude`, else
+    `DEFAULT_CHAT_MODEL`. `session` is a plain (unscoped) `Session` -- the config is global, not
+    tenant-scoped.
+    """
+    row = session.get(LlmModelConfig, gateway)
+    if row is not None:
+        return row.chat_model
+    if gateway == "local_claude":
+        return settings.claude_cli_model
+    return DEFAULT_CHAT_MODEL
+
+
 def build_portkey_client(settings: Settings) -> PortkeyClient | None:
     """The shared `PortkeyClient`, or `None` when the gateway is off or unconfigured."""
     if settings.llm_gateway != "portkey" or not settings.portkey_api_key:
@@ -53,24 +75,37 @@ def build_portkey_client(settings: Settings) -> PortkeyClient | None:
     )
 
 
-def build_local_claude_client(settings: Settings) -> LocalClaudeCliClient:
-    """The local `claude -p` `LLMClient` (Claude Max subscription, $0), built from `claude_cli_*`."""
+def build_local_claude_client(
+    settings: Settings, *, model: str | None = None
+) -> LocalClaudeCliClient:
+    """The local `claude -p` `LLMClient` (Claude Max subscription, $0), built from `claude_cli_*`.
+
+    `model` overrides the CLI `--model`; when `None` it keeps today's default
+    (`settings.claude_cli_model`), so existing callers are unchanged. Call sites with a DB session
+    pass the operator-selected model via `resolve_chat_model`.
+    """
     return LocalClaudeCliClient(
         bin=settings.claude_cli_bin,
-        model=settings.claude_cli_model,
+        model=model if model is not None else settings.claude_cli_model,
         config_dir=settings.claude_cli_config_dir,
         timeout=settings.claude_cli_timeout_s,
     )
 
 
-def build_llm_client(settings: Settings) -> LLMClient:
-    """The generation `LLMClient`: local Claude when `local_claude`, else Portkey (keyed) or direct."""
+def build_llm_client(settings: Settings, *, model: str | None = None) -> LLMClient:
+    """The generation `LLMClient`: local Claude when `local_claude`, else Portkey (keyed) or direct.
+
+    `model` (the DB-resolved chat model, `resolve_chat_model`) is threaded through whichever gateway
+    is selected; when `None` each path keeps its prior default (`settings.claude_cli_model` local,
+    `DEFAULT_CHAT_MODEL` Portkey, the client's own `_DEFAULT_MODEL` direct), so existing
+    callers/tests are unchanged.
+    """
     if settings.llm_gateway == "local_claude":
-        return build_local_claude_client(settings)
+        return build_local_claude_client(settings, model=model)
     client = build_portkey_client(settings)
     if client is not None:
-        return PortkeyLLMClient(client, model=DEFAULT_CHAT_MODEL)
-    return AnthropicLLMClient(api_key=settings.anthropic_api_key)
+        return PortkeyLLMClient(client, model=model if model is not None else DEFAULT_CHAT_MODEL)
+    return AnthropicLLMClient(api_key=settings.anthropic_api_key, model=model)
 
 
 def build_embedder(settings: Settings) -> EmbeddingClient:
@@ -93,24 +128,34 @@ def build_embedder(settings: Settings) -> EmbeddingClient:
     return OpenAIEmbeddingClient(api_key=settings.openai_api_key, model=settings.embedding_model)
 
 
-def build_claim_extractor(settings: Settings) -> ClaimExtractor:
-    """The claim-verification `ClaimExtractor`: local Claude when `local_claude`, else Portkey/direct."""
+def build_claim_extractor(settings: Settings, *, model: str | None = None) -> ClaimExtractor:
+    """The claim-verification `ClaimExtractor`: local Claude when `local_claude`, else Portkey/direct.
+
+    `model` threads the DB-resolved chat model through the selected gateway; `None` preserves each
+    path's prior default (see `build_llm_client`)."""
     if settings.llm_gateway == "local_claude":
-        return LLMClaimExtractor(llm=build_local_claude_client(settings))
+        return LLMClaimExtractor(llm=build_local_claude_client(settings, model=model))
     client = build_portkey_client(settings)
     if client is not None:
-        return LLMClaimExtractor(portkey=client, model=DEFAULT_CHAT_MODEL)
-    return LLMClaimExtractor(api_key=settings.anthropic_api_key)
+        return LLMClaimExtractor(
+            portkey=client, model=model if model is not None else DEFAULT_CHAT_MODEL
+        )
+    return LLMClaimExtractor(api_key=settings.anthropic_api_key, model=model)
 
 
-def build_voice_scorer(settings: Settings) -> VoiceScorer:
-    """The brand-voice `VoiceScorer`: local Claude when `local_claude`, else Portkey/direct."""
+def build_voice_scorer(settings: Settings, *, model: str | None = None) -> VoiceScorer:
+    """The brand-voice `VoiceScorer`: local Claude when `local_claude`, else Portkey/direct.
+
+    `model` threads the DB-resolved chat model through the selected gateway; `None` preserves each
+    path's prior default (see `build_llm_client`)."""
     if settings.llm_gateway == "local_claude":
-        return LLMVoiceScorer(llm=build_local_claude_client(settings))
+        return LLMVoiceScorer(llm=build_local_claude_client(settings, model=model))
     client = build_portkey_client(settings)
     if client is not None:
-        return LLMVoiceScorer(portkey=client, model=DEFAULT_CHAT_MODEL)
-    return LLMVoiceScorer(api_key=settings.anthropic_api_key)
+        return LLMVoiceScorer(
+            portkey=client, model=model if model is not None else DEFAULT_CHAT_MODEL
+        )
+    return LLMVoiceScorer(api_key=settings.anthropic_api_key, model=model)
 
 
 def build_kb_factory(settings: Settings) -> Callable[[str], KnowledgeBase]:
@@ -143,4 +188,5 @@ __all__ = [
     "build_local_claude_client",
     "build_portkey_client",
     "build_voice_scorer",
+    "resolve_chat_model",
 ]

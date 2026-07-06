@@ -9,6 +9,7 @@ import { getRole, getToken } from "@/lib/auth";
 import { useFilters } from "@/lib/filters";
 import type { Brand } from "@/lib/types";
 import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
+import { LlmModelPanel } from "@/components/settings/LlmModelPanel";
 import { PromptManager } from "@/components/settings/PromptManager";
 import { SnippetInstall } from "@/components/settings/SnippetInstall";
 import { Badge } from "@/components/ui/badge";
@@ -170,6 +171,7 @@ export default function SettingsPage() {
       {activeBrand ? <BrandSummary brand={activeBrand} /> : null}
       <PromptManager brandId={activeBrandId} role={role} />
       <IntegrationsPanel role={role} />
+      <LlmModelPanel role={role} />
       <SnippetInstall brandId={activeBrandId} />
       <TeamRolesSection role={role} />
     </div>

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import SettingsPage from "./page";
 import { IntegrationsPanel } from "@/components/settings/IntegrationsPanel";
+import { LlmModelPanel } from "@/components/settings/LlmModelPanel";
 import { PromptManager } from "@/components/settings/PromptManager";
 import { SnippetInstall } from "@/components/settings/SnippetInstall";
 import { setSession, clearSession } from "@/lib/auth";
@@ -113,6 +114,67 @@ describe("IntegrationsPanel", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /^connected$/i })).toBeDisabled(),
     );
+  });
+});
+
+describe("LlmModelPanel", () => {
+  it("renders the current model per gateway as a dropdown value (admin)", async () => {
+    mockApi({
+      llmModel: [
+        { gateway: "local_claude", chat_model: "sonnet" },
+        { gateway: "portkey", chat_model: "claude-haiku-4-5-20251001" },
+      ],
+    });
+    renderWithClient(<LlmModelPanel role="admin" />);
+
+    const localSelect = await screen.findByLabelText("Chat model for local_claude");
+    expect(localSelect).toHaveValue("sonnet");
+    const portkeySelect = screen.getByLabelText("Chat model for portkey");
+    expect(portkeySelect).toHaveValue("claude-haiku-4-5-20251001");
+    // The gateway itself is shown read-only (env-driven), not editable — one label per row.
+    expect(screen.getAllByText(/gateway \(env-driven, read-only\)/i)).toHaveLength(2);
+  });
+
+  it("saves a picked model via PUT /settings/llm-model", async () => {
+    const client = mockApi({ llmModel: [{ gateway: "local_claude", chat_model: "sonnet" }] });
+    const saveSpy = vi.spyOn(client, "setLlmModelConfig");
+    renderWithClient(<LlmModelPanel role="admin" />);
+
+    const select = await screen.findByLabelText("Chat model for local_claude");
+    fireEvent.change(select, { target: { value: "opus" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(saveSpy).toHaveBeenCalledWith({ gateway: "local_claude", chat_model: "opus" }),
+    );
+    expect(await screen.findByRole("button", { name: /saved/i })).toBeInTheDocument();
+  });
+
+  it("saves a free-text custom model", async () => {
+    const client = mockApi({
+      llmModel: [{ gateway: "portkey", chat_model: "claude-haiku-4-5-20251001" }],
+    });
+    const saveSpy = vi.spyOn(client, "setLlmModelConfig");
+    renderWithClient(<LlmModelPanel role="admin" />);
+
+    const select = await screen.findByLabelText("Chat model for portkey");
+    fireEvent.change(select, { target: { value: "__custom__" } });
+    fireEvent.change(screen.getByLabelText("Custom chat model for portkey"), {
+      target: { value: "claude-opus-4-8" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(saveSpy).toHaveBeenCalledWith({ gateway: "portkey", chat_model: "claude-opus-4-8" }),
+    );
+  });
+
+  it("gates the control for a non-admin (hint, no dropdown)", () => {
+    mockApi();
+    renderWithClient(<LlmModelPanel role="viewer" />);
+
+    expect(screen.getByText(/admin access to view and change/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/chat model for/i)).not.toBeInTheDocument();
   });
 });
 

@@ -28,6 +28,7 @@ import type {
   Alert,
   Brand,
   ContentGenerateResponse,
+  LlmModelConfig,
   MeasureAccepted,
   Opportunity,
   Overview,
@@ -57,6 +58,8 @@ export type MockApiOverrides = {
   content?: ContentGenerateResponse;
   /** Canned `POST /brands/{id}/measure` 202 acknowledgement (Run-measurement button). */
   measure?: MeasureAccepted;
+  /** Canned `GET /settings/llm-model` rows (Settings LLM-model panel). */
+  llmModel?: LlmModelConfig[];
 };
 
 const DEFAULT_BRANDS: Brand[] = [
@@ -109,6 +112,11 @@ const DEFAULTS: Required<MockApiOverrides> = {
     engines: ["perplexity", "openai"],
     n_samples: 8,
   },
+  llmModel: [
+    { gateway: "local_claude", chat_model: "sonnet" },
+    { gateway: "portkey", chat_model: "claude-haiku-4-5-20251001" },
+    { gateway: "direct", chat_model: "claude-opus-4-8" },
+  ],
 };
 
 /**
@@ -142,6 +150,8 @@ export function mockApi(overrides: MockApiOverrides = {}): ApiClient {
     savePrompts: (_brandId, prompts) => Promise.resolve(prompts),
     connectIntegration: () => Promise.resolve({ status: "connected" }),
     leadCaptureSnippet: () => Promise.resolve(data.snippet),
+    llmModelConfig: () => Promise.resolve(data.llmModel),
+    setLlmModelConfig: (input) => Promise.resolve(input),
   };
 
   vi.spyOn(apiModule, "apiClient").mockReturnValue(client);

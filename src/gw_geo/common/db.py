@@ -735,6 +735,28 @@ class BillingInvoice(Base):
     tenant: Mapped["Tenant"] = relationship()
 
 
+class LlmModelConfig(Base):
+    """The operator-selected content-chat model for one LLM gateway (M5 model-selection).
+
+    One row per `GEO_LLM_GATEWAY` value (`local_claude`/`portkey`/`direct`): `gateway` is the PK and
+    `chat_model` the chat-model slug the content-chat factories thread through
+    (`content.gateway.resolve_chat_model` -> `build_llm_client`/`build_claim_extractor`/
+    `build_voice_scorer`/`build_local_claude_client`). Only the *model* is DB-stored + operator-
+    selectable (via `PUT /settings/llm-model`, admin-gated); the *gateway* stays env-driven.
+
+    SYSTEM-LEVEL: intentionally has NO `tenant_id` -- the chat model is a global operator/config
+    choice, not tenant-owned (a documented exception to the per-row `tenant_id` rule, like
+    `DriftEvent`/`SeedingChannel`/`ComplianceRule`). Seeded with the three gateway defaults by
+    migration `0008`; when a row is absent the factories fall back to today's constants
+    (`settings.claude_cli_model` for `local_claude`, else `content.gateway.DEFAULT_CHAT_MODEL`).
+    """
+
+    __tablename__ = "llm_model_config"
+
+    gateway: Mapped[str] = mapped_column(String, primary_key=True)
+    chat_model: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class TenantScopedSession:
     """Wraps a `Session`, binding it to one `tenant_id` so cross-tenant reads/writes can't happen.
 

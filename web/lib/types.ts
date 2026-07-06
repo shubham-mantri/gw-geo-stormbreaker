@@ -158,6 +158,13 @@ export type IntegrationKind = "crm" | "ga4" | "cms" | "lead_capture" | (string &
 export type IntegrationResult = { status: string };
 export type SnippetResponse = { snippet: string };
 
+/**
+ * `GET/PUT /settings/llm-model` (M5) — the operator-selected content-chat model per env-driven
+ * gateway (`local_claude`/`portkey`/`direct`). Only the *model* is DB-stored/selectable; the
+ * *gateway* stays env-driven (`GEO_LLM_GATEWAY`). System-level (admin-gated), not tenant-scoped.
+ */
+export type LlmModelConfig = { gateway: string; chat_model: string };
+
 // ── Opportunities (3.4) ───────────────────────────────────────────────────────
 // The ranked-gap row shape (ui-spec §6 / OpportunityOut, verbatim). The underlying
 // tenant_id/brand_id/source_gap/status stay server-side and are not exposed here.

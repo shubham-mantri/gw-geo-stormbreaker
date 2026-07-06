@@ -54,7 +54,7 @@ from gw_geo.attribution.trigger import run_attribution_reconcile_job
 from gw_geo.common.config import Settings
 from gw_geo.common.db import Brand, TenantScopedSession
 from gw_geo.common.wiring import configured_engine_names
-from gw_geo.content.gateway import build_llm_client
+from gw_geo.content.gateway import build_llm_client, resolve_chat_model
 from gw_geo.content.generate import LLMClient
 from gw_geo.measurement import feed
 from gw_geo.measurement.trigger import run_measurement_job
@@ -83,6 +83,7 @@ class BrandSuggestDeps:
 
 def get_brand_suggest_deps(
     settings: Annotated[Settings, Depends(get_settings_dep)],
+    session: Annotated[SASession, Depends(get_db_session)],
 ) -> BrandSuggestDeps:
     """Injected fetcher + LLM for ``POST /brands/suggest`` -- the real, config-wired collaborators.
 
@@ -90,10 +91,13 @@ def get_brand_suggest_deps(
     + the gateway-selected :class:`~gw_geo.content.generate.LLMClient`), unlike the raising
     ``content.get_content_service`` default, because constructing these opens **no** connection
     (``HttpxPageFetcher`` only stores config; ``build_llm_client`` returns a client that connects
-    lazily on first ``complete``), so it is safe to build at request time. Tests override it with
-    hermetic fakes via ``app.dependency_overrides[get_brand_suggest_deps]`` -- no live HTTP/LLM call.
+    lazily on first ``complete``), so it is safe to build at request time. The chat model is the
+    DB-stored, operator-selectable one for the active gateway (``resolve_chat_model``; falls back to
+    today's constants when unset). Tests override it with hermetic fakes via
+    ``app.dependency_overrides[get_brand_suggest_deps]`` -- no live HTTP/LLM call.
     """
-    return BrandSuggestDeps(fetcher=HttpxPageFetcher(), llm=build_llm_client(settings))
+    model = resolve_chat_model(session, gateway=settings.llm_gateway, settings=settings)
+    return BrandSuggestDeps(fetcher=HttpxPageFetcher(), llm=build_llm_client(settings, model=model))
 
 
 def _since_until(range_param: str | None) -> tuple[str, str]:
