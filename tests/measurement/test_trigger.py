@@ -6,9 +6,15 @@ no live adapters, S3, or network calls, and no real DB (the sqlite URL is never 
 `run_measurement` is mocked).
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+
 from gw_geo.common.config import Settings
+from gw_geo.common.db import Base, Brand, Tenant, UsageEvent
 from gw_geo.measurement import trigger
 
 
@@ -62,3 +68,43 @@ def test_run_measurement_job_honors_explicit_overrides() -> None:
     assert kwargs["geos"] == ["gb"]
     assert kwargs["n_samples"] == 3
     assert kwargs["date"] == "2026-07-01"
+
+
+def test_run_measurement_job_records_probe_usage(tmp_path) -> None:
+    # Billing metering hook: the run's total sampled probes are recorded as one PROBE usage event.
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    eng = create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+        s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+        s.commit()
+
+    snapshots = [SimpleNamespace(n_samples=8), SimpleNamespace(n_samples=5)]
+    with (
+        patch("gw_geo.measurement.trigger.get_settings", return_value=Settings(database_url=url)),
+        patch("gw_geo.measurement.trigger.build_runtime", return_value=_runtime()),
+        patch("gw_geo.measurement.trigger.run_measurement", new=AsyncMock(return_value=snapshots)),
+    ):
+        trigger.run_measurement_job(
+            tenant_id="t1", brand_id="b1", engines=["perplexity"], date="2026-07-06"
+        )
+
+    with Session(eng) as s:
+        events = s.query(UsageEvent).all()
+    assert len(events) == 1
+    assert events[0].kind == "probe"
+    assert events[0].quantity == 13  # 8 + 5 sampled probes
+    assert events[0].tenant_id == "t1" and events[0].brand_id == "b1"
+
+
+def test_run_measurement_job_records_no_probe_usage_when_empty() -> None:
+    # An empty run (no snapshots) records nothing and never touches the DB (keeps the mocked
+    # sqlite:// path from needing provisioned tables).
+    with (
+        patch("gw_geo.measurement.trigger.get_settings", return_value=Settings(database_url="sqlite://")),
+        patch("gw_geo.measurement.trigger.build_runtime", return_value=_runtime()),
+        patch("gw_geo.measurement.trigger.run_measurement", new=AsyncMock(return_value=[])),
+    ):
+        result = trigger.run_measurement_job(tenant_id="t1", brand_id="b1", engines=["perplexity"])
+    assert result == []

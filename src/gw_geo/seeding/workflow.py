@@ -38,11 +38,13 @@ another tenant is indistinguishable from an unknown one, both raising `LookupErr
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import StrEnum
 from uuid import uuid4
 
 from sqlalchemy.orm import Session as SASession
 
+from gw_geo.billing.metering import UsageKind, record_usage
 from gw_geo.common.db import SeedingTask, TenantScopedSession
 from gw_geo.seeding.briefs import SeedingBrief
 from gw_geo.seeding.compliance import (
@@ -95,6 +97,10 @@ class SeedingWorkflow:
 
     def __init__(self, session: SASession, tenant_id: str, engine: ComplianceEngine) -> None:
         self._scoped = TenantScopedSession(session, tenant_id)
+        # Kept alongside the scoped wrapper only for the billing metering write in `mark_placed`
+        # (`record_usage` takes a plain `Session`); every gate read/write still goes through
+        # `self._scoped`.
+        self._session = session
         self._tenant_id = tenant_id
         self._engine = engine
 
@@ -237,6 +243,18 @@ class SeedingWorkflow:
         task.status = SeedingStatus.PLACED.value
         task.placed_url = placed_url
         task.actor = actor
+        # Billing metering (m4-design §4.1): a successful, human-actioned placement is one billable
+        # SEEDING_PLACEMENT unit. Metering only -- this line records usage and changes nothing about
+        # the white-hat gate above; it is staged before (and flushed by) the existing commit.
+        record_usage(
+            self._session,
+            tenant_id=task.tenant_id,
+            brand_id=task.brand_id,
+            kind=UsageKind.SEEDING_PLACEMENT,
+            quantity=1,
+            ts=datetime.now(timezone.utc).isoformat(),
+            source_ref=task_id,
+        )
         self._scoped.commit()
 
     def _get_task(self, task_id: str) -> SeedingTask:

@@ -74,6 +74,7 @@ def build_content_service(
         voice_profile={},
         connectors={},
         store=DbAssetStore(session=session, tenant_id=tenant_id),
+        usage_session=session,
     )
 
 
