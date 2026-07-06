@@ -5,11 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Target } from "lucide-react";
 
 import { apiClient } from "@/lib/api";
-import { getToken } from "@/lib/auth";
+import type { Role } from "@/lib/auth";
+import { getRole, getToken } from "@/lib/auth";
 import { useFilters } from "@/lib/filters";
 import type { Alert, Brand } from "@/lib/types";
 import { formatCurrency, formatPct } from "@/lib/utils";
 import { SoVTrend } from "@/components/charts/SoVTrend";
+import { RunMeasurementButton } from "@/components/RunMeasurementButton";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -61,7 +63,13 @@ function OverviewSkeleton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({
+  brandId,
+  role,
+}: {
+  brandId: string | null;
+  role: Role | null;
+}) {
   return (
     <Card className="mx-auto mt-10 max-w-lg text-center">
       <CardHeader>
@@ -73,9 +81,14 @@ function EmptyState() {
           AI recommends you. Your dashboard fills in once the first snapshot
           lands.
         </p>
-        <Button asChild>
-          <Link href="/onboarding">Start onboarding</Link>
-        </Button>
+        <div className="flex flex-col items-center gap-3">
+          <Button asChild>
+            <Link href="/onboarding">Start onboarding</Link>
+          </Button>
+          {/* Once a brand exists, this kicks off its first snapshot without
+              re-running onboarding; disabled until there's a brand to measure. */}
+          <RunMeasurementButton brandId={brandId} role={role} />
+        </div>
       </CardContent>
     </Card>
   );
@@ -118,6 +131,7 @@ function CountStrip({ alerts }: { alerts: Alert[] }) {
 
 export default function OverviewPage() {
   const { brandId, range } = useFilters();
+  const role = getRole();
 
   const brandsQuery = useQuery({
     queryKey: ["brands"],
@@ -144,7 +158,7 @@ export default function OverviewPage() {
   if (brandsQuery.isLoading) return <OverviewSkeleton />;
 
   if (!brandsQuery.data || brandsQuery.data.length === 0 || activeBrandId === null) {
-    return <EmptyState />;
+    return <EmptyState brandId={activeBrandId} role={role} />;
   }
 
   if (overviewQuery.isLoading || !overviewQuery.data) return <OverviewSkeleton />;
@@ -156,11 +170,18 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-        {activeBrand ? (
-          <p className="text-sm text-muted-foreground">{activeBrand.name}</p>
-        ) : null}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+          {activeBrand ? (
+            <p className="text-sm text-muted-foreground">{activeBrand.name}</p>
+          ) : null}
+        </div>
+        <RunMeasurementButton
+          brandId={activeBrandId}
+          role={role}
+          className="text-right"
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

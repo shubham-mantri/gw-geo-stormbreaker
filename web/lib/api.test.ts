@@ -48,6 +48,22 @@ describe("apiClient", () => {
     expect(JSON.parse(init.body as string)).toEqual({ connector: "hosted" });
   });
 
+  it("POSTs an empty measure body to /brands/{id}/measure and parses the 202 ack", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ status: "accepted", brand_id: "b1", engines: ["perplexity"], n_samples: 8 }),
+        { status: 202 },
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = apiClient(() => "tok123");
+    const res = await api.measureBrand("b 1"); // default body = {} (server defaults)
+    expect(res).toMatchObject({ status: "accepted", engines: ["perplexity"], n_samples: 8 });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/brands/b%201/measure");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({});
+  });
+
   it("throws ApiError with the status for a 409 approval-gate rejection", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("conflict", { status: 409 }));

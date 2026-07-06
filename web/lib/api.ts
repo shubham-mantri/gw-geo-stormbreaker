@@ -10,6 +10,8 @@ import type {
   IntegrationResult,
   KbFactIn,
   KbFactsIngested,
+  MeasureAccepted,
+  MeasureRequest,
   Opportunity,
   OpportunityActResponse,
   OpportunityRefreshAccepted,
@@ -82,6 +84,13 @@ export type ApiClient = {
     domain: string;
     competitors?: string[];
   }): Promise<BrandCreated>;
+  /**
+   * `POST /brands/{id}/measure` — kick off a measurement run (role ≥ editor;
+   * brand-ownership checked server-side). Returns **202** with the scheduled run
+   * (`engines` + `n_samples`); the data itself lands async minutes later. An
+   * empty `body` (the default `{}`) uses server defaults for engines/geos/n.
+   */
+  measureBrand(brandId: string, body?: MeasureRequest): Promise<MeasureAccepted>;
   /**
    * Persist prompts for a brand. The backend exposes only a *singular* create
    * (`POST /brands/{id}/prompts`, one `PromptCreate` -> `{id}`), so this maps the
@@ -180,6 +189,11 @@ export function apiClient(
       request<BrandCreated>("/brands", {
         method: "POST",
         body: JSON.stringify(input),
+      }),
+    measureBrand: (brandId, body = {}) =>
+      request<MeasureAccepted>(`${brandPath(brandId)}/measure`, {
+        method: "POST",
+        body: JSON.stringify(body),
       }),
     savePrompts: async (brandId, prompts) => {
       // Backend has only a singular create; issue one POST per prompt (sequential to keep the
