@@ -43,6 +43,8 @@ from gw_geo.api.schemas import (
     OpportunityRefreshAccepted,
     OverviewOut,
     OverviewTrendPoint,
+    RankingRefreshAccepted,
+    RankingRefreshRequest,
 )
 from gw_geo.attribution.pipeline import pipeline_view
 from gw_geo.attribution.trigger import run_attribution_reconcile_job
@@ -52,6 +54,7 @@ from gw_geo.common.wiring import configured_engine_names
 from gw_geo.measurement import feed
 from gw_geo.measurement.trigger import run_measurement_job
 from gw_geo.orchestration.opportunity_gen import run_opportunity_refresh_job
+from gw_geo.orchestration.ranking_gen import run_ranking_refresh_job
 
 router = APIRouter(tags=["brands"])
 
@@ -260,6 +263,46 @@ def refresh_opportunities(
         run_opportunity_refresh_job, tenant_id=principal.tenant_id, brand_id=brand_id
     )
     return OpportunityRefreshAccepted(status="accepted", brand_id=brand_id)
+
+
+@router.post(
+    "/brands/{brand_id}/ranking/refresh",
+    status_code=202,
+    response_model=RankingRefreshAccepted,
+)
+def refresh_ranking(
+    brand_id: str,
+    background_tasks: BackgroundTasks,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+    scoped: Annotated[TenantScopedSession, Depends(scoped_session)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    body: RankingRefreshRequest | None = None,
+) -> RankingRefreshAccepted:
+    """``POST /brands/{brand_id}/ranking/refresh`` (M5) -- source ranking candidates from the
+    brand's citation pool (crawl the cited URLs for content + features), train the per-engine
+    ranking models, and emit recommendation reports.
+
+    Requires ``role >= editor`` (a ``viewer`` -> **403**) and brand ownership under the caller's
+    tenant (an unowned/unknown brand -> **404**, never a tenant leak -- same collapse as
+    ``refresh_opportunities``). The crawl + train run is **scheduled onto a background task**, never
+    executed inline: ``run_ranking_refresh_job`` opens its own session, wires the live page fetcher +
+    a config-selected (offline-capable) embedder + the model backend, and drives
+    ``ranking_gen.generate_ranking_reports`` out of band, so the request returns **202** immediately.
+
+    ``engines`` comes from the (optional) body, else every API-keyed engine the runtime has
+    configured. NOTE: ranking negatives are sourced cross-engine, so >=2 engines should be measured
+    for the models to train (see ``ranking.sourcing``). ``tenant_id`` is taken from the token
+    (``principal``), never the client. Returns what was scheduled (engines)."""
+    _ensure_brand_owned(scoped, brand_id)
+    req = body if body is not None else RankingRefreshRequest()
+    engines = req.engines if req.engines else configured_engine_names(settings)
+    background_tasks.add_task(
+        run_ranking_refresh_job,
+        tenant_id=principal.tenant_id,
+        brand_id=brand_id,
+        engines=engines,
+    )
+    return RankingRefreshAccepted(status="accepted", brand_id=brand_id, engines=engines)
 
 
 @router.post(

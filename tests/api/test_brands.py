@@ -176,6 +176,70 @@ def test_refresh_opportunities_foreign_brand_404(
     job.assert_not_called()
 
 
+# --- POST /brands/{id}/ranking/refresh (M5 candidate-sourcing ranking trigger) --------------
+
+
+def test_refresh_ranking_enqueues_job(
+    app_client: TestClient, editor_token: str, seeded_brands: None
+) -> None:
+    # The TestClient runs the enqueued BackgroundTask before returning, so a patched
+    # run_ranking_refresh_job records that it was scheduled -- with no live crawl/train work.
+    with patch("gw_geo.api.routers.brands.run_ranking_refresh_job") as job:
+        r = app_client.post(
+            "/brands/b1/ranking/refresh",
+            json={"engines": ["perplexity", "openai"]},
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+    assert r.status_code == 202
+    body = r.json()
+    assert body == {"status": "accepted", "brand_id": "b1", "engines": ["perplexity", "openai"]}
+    job.assert_called_once()
+    kwargs = job.call_args.kwargs
+    assert kwargs["tenant_id"] == "t1"  # from the token, never the client
+    assert kwargs["brand_id"] == "b1"
+    assert kwargs["engines"] == ["perplexity", "openai"]
+
+
+def test_refresh_ranking_defaults_engines_when_body_omitted(
+    app_client: TestClient, editor_token: str, seeded_brands: None
+) -> None:
+    # Test settings carry no engine API keys, so no engines are configured -> resolves to [].
+    with patch("gw_geo.api.routers.brands.run_ranking_refresh_job") as job:
+        r = app_client.post(
+            "/brands/b1/ranking/refresh", headers={"Authorization": f"Bearer {editor_token}"}
+        )
+    assert r.status_code == 202
+    assert r.json()["engines"] == []
+    job.assert_called_once()
+
+
+def test_refresh_ranking_requires_editor(
+    app_client: TestClient, viewer_token: str, seeded_brands: None
+) -> None:
+    with patch("gw_geo.api.routers.brands.run_ranking_refresh_job") as job:
+        r = app_client.post(
+            "/brands/b1/ranking/refresh",
+            json={"engines": ["perplexity"]},
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+    assert r.status_code == 403  # RBAC gate (ui-spec §5): viewer cannot trigger ranking
+    job.assert_not_called()
+
+
+def test_refresh_ranking_foreign_brand_404(
+    app_client: TestClient, t1_token: str, seeded_brands: None
+) -> None:
+    # t1 requesting b2 (owned by t2): collapses to 404, never confirming b2 exists.
+    with patch("gw_geo.api.routers.brands.run_ranking_refresh_job") as job:
+        r = app_client.post(
+            "/brands/b2/ranking/refresh",
+            json={"engines": ["perplexity"]},
+            headers={"Authorization": f"Bearer {t1_token}"},
+        )
+    assert r.status_code == 404
+    job.assert_not_called()
+
+
 # --- POST /brands/{id}/attribution/reconcile (W4 attribution-reconcile trigger) --------------
 
 
