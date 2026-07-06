@@ -273,6 +273,25 @@ class ContentApproveResponse(BaseModel):
     status: str
 
 
+class KbFactIn(BaseModel):
+    """One fact in the ``POST /brands/{id}/kb/facts`` ingest body -- an approved statement the
+    brand's grounding KB may cite (PRD §6.4). ``category`` defaults to ``"other"`` and ``source`` is
+    optional, matching :class:`gw_geo.common.models.Fact`'s own defaults; the fact ``id`` and
+    ``brand_id`` are assigned server-side (never client-supplied), so a caller can never write into
+    another brand's corpus by spoofing them."""
+
+    text: str
+    category: str = "other"
+    source: str | None = None
+
+
+class KbFactsIngested(BaseModel):
+    """``POST /brands/{id}/kb/facts`` response: how many facts were embedded + upserted into the
+    brand's grounding KB."""
+
+    added: int
+
+
 class ContentPublishRequest(BaseModel):
     """``POST /content/{id}/publish`` body: which publish connector to target. Defaults to the
     always-available product-hosted subdomain (``hosted``) so a brand with no CMS of its own can

@@ -14,12 +14,20 @@ high-volume content + guardrail calls; embeddings default to `Settings.embedding
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from gw_geo.common.config import Settings
 from gw_geo.common.portkey import PortkeyClient
 from gw_geo.content.generate import AnthropicLLMClient, LLMClient, PortkeyLLMClient
 from gw_geo.content.guardrails.brand_voice import LLMVoiceScorer, VoiceScorer
 from gw_geo.content.guardrails.claims import ClaimExtractor, LLMClaimExtractor
-from gw_geo.content.kb import EmbeddingClient, OpenAIEmbeddingClient, PortkeyEmbeddingClient
+from gw_geo.content.kb import (
+    EmbeddingClient,
+    KnowledgeBase,
+    OpenAIEmbeddingClient,
+    PortkeyEmbeddingClient,
+    build_vector_store,
+)
 
 # Cheap default for the high-volume content + guardrail chat calls; overridable per call site.
 DEFAULT_CHAT_MODEL = "claude-haiku-4-5-20251001"
@@ -68,10 +76,32 @@ def build_voice_scorer(settings: Settings) -> VoiceScorer:
     return LLMVoiceScorer(api_key=settings.anthropic_api_key)
 
 
+def build_kb_factory(settings: Settings) -> Callable[[str], KnowledgeBase]:
+    """A per-brand `KnowledgeBase` builder from `settings`.
+
+    Returns a `brand_id -> KnowledgeBase` factory the content service + KB-ingest endpoint call to
+    ground/verify/populate a specific brand's corpus. The embedder is shared across brands (it is
+    brand-agnostic), while the vector store is rebuilt per brand via `build_vector_store(...,
+    brand_id=...)` -- pgvector filters every query on `brand_id`, Pinecone namespaces on it -- so KB
+    access can never cross a brand boundary. Construction does no I/O: the embedder + store clients
+    connect lazily, on first embed/query, never here (so this is safe to call at request time)."""
+    embedder = build_embedder(settings)
+
+    def _factory(brand_id: str) -> KnowledgeBase:
+        return KnowledgeBase(
+            brand_id=brand_id,
+            store=build_vector_store(settings, brand_id=brand_id),
+            embedder=embedder,
+        )
+
+    return _factory
+
+
 __all__ = [
     "DEFAULT_CHAT_MODEL",
     "build_claim_extractor",
     "build_embedder",
+    "build_kb_factory",
     "build_llm_client",
     "build_portkey_client",
     "build_voice_scorer",
