@@ -6,6 +6,7 @@
     python -m gw_geo.cli schedule [--brand <id> --tenant <id>] --engines perplexity --interval 24h
     python -m gw_geo.cli opportunities --brand <id> [--tenant <id>]
     python -m gw_geo.cli reconcile --brand <id> [--tenant <id>] [--since YYYY-MM-DD --until ...]
+    python -m gw_geo.cli seed-discover --brand <id> [--tenant <id>] [--since ... --until ... --budget N]
 
 `measure` wires real dependencies via `gw_geo.common.wiring.build_runtime` and drives the same
 `gw_geo.measurement.runner.run_measurement` pipeline that the Lambda handler
@@ -22,12 +23,15 @@ from its live visibility data via `gw_geo.orchestration.opportunity_gen.run_oppo
 runs the fuzzy attribution writers (direct/citation/assisted) over a brand's captured sessions+leads
 and persists the `attribution_link` rows the pipeline reads, via
 `gw_geo.attribution.trigger.run_attribution_reconcile_job` -- the same local job the
-`POST /brands/{id}/attribution/reconcile` endpoint schedules.
+`POST /brands/{id}/attribution/reconcile` endpoint schedules. `seed-discover` discovers off-site
+seeding targets from a brand's citation-source mix and opens human-in-the-loop `seeding_task`s
+(white-hat: it drafts briefs only and NEVER posts or places -- tasks stop at `todo`/`briefed`), via
+`gw_geo.seeding.trigger.run_seeding_discovery_job`.
 
 Every pipeline entry point (`build_runtime`, `run_measurement`, `run_measurement_job`,
 `build_ranking_inputs`, `run_ranking`, `run_ranking_refresh_job`, `run_opportunity_refresh_job`,
-`run_attribution_reconcile_job`) is imported by name into this module (rather than referenced
-through its owning module) so tests can patch it as `gw_geo.cli.<name>`.
+`run_attribution_reconcile_job`, `run_seeding_discovery_job`) is imported by name into this module
+(rather than referenced through its owning module) so tests can patch it as `gw_geo.cli.<name>`.
 """
 
 from __future__ import annotations
@@ -54,6 +58,7 @@ from gw_geo.orchestration.opportunity_gen import run_opportunity_refresh_job
 from gw_geo.orchestration.ranking_gen import run_ranking_refresh_job
 from gw_geo.ranking.model import make_backend
 from gw_geo.ranking.runner import run_ranking
+from gw_geo.seeding.trigger import run_seeding_discovery_job
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -218,6 +223,35 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Inclusive window end YYYY-MM-DD (default: today, UTC)",
     )
+
+    seed_discover = subparsers.add_parser(
+        "seed-discover",
+        help="Discover off-site seeding targets from the citation-source mix and open "
+        "human-in-the-loop tasks (white-hat; drafts briefs only -- NEVER posts or places)",
+    )
+    seed_discover.add_argument(
+        "--brand", required=True, help="Brand id to discover seeding targets for"
+    )
+    seed_discover.add_argument(
+        "--tenant", default="default", help="Tenant id that owns the brand (default: %(default)s)"
+    )
+    seed_discover.add_argument(
+        "--since",
+        default=None,
+        help="Inclusive window start YYYY-MM-DD (default: the job's trailing look-back window)",
+    )
+    seed_discover.add_argument(
+        "--until",
+        default=None,
+        help="Inclusive window end YYYY-MM-DD (default: today, UTC)",
+    )
+    seed_discover.add_argument(
+        "--budget",
+        type=int,
+        default=None,
+        help="Max number of targets/tasks to create (highest-priority first; default: unbounded "
+        "up to the discovery limit)",
+    )
     return parser
 
 
@@ -240,6 +274,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_opportunities(args)
     if args.command == "reconcile":
         return _run_reconcile(args)
+    if args.command == "seed-discover":
+        return _run_seed_discover(args)
     return 1
 
 
@@ -480,6 +516,25 @@ def _run_reconcile(args: argparse.Namespace) -> int:
         tenant_id=args.tenant, brand_id=args.brand, since=args.since, until=args.until
     )
     print(json.dumps({"brand_id": args.brand, "attribution_links": counts}, indent=2))
+    return 0
+
+
+def _run_seed_discover(args: argparse.Namespace) -> int:
+    """Discover off-site seeding targets and open human-in-the-loop tasks, locally.
+
+    Delegates to the same `run_seeding_discovery_job` unit (which owns its own DB session and wires
+    the real citation-source map + optional brief drafting). White-hat: it drafts briefs only and
+    NEVER posts or places -- tasks stop at `todo`/`briefed`. Prints the created-task count as JSON
+    and returns the process exit code (`0` on success).
+    """
+    count = run_seeding_discovery_job(
+        tenant_id=args.tenant,
+        brand_id=args.brand,
+        since=args.since,
+        until=args.until,
+        budget=args.budget,
+    )
+    print(json.dumps({"brand_id": args.brand, "seeding_tasks": count}, indent=2))
     return 0
 
 
