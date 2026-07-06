@@ -96,7 +96,7 @@ class ClaudeAdapter:
         model: str = "claude-sonnet-4-5",
     ) -> None:
         self._api_key = api_key
-        self._client = client if client is not None else httpx.AsyncClient()
+        self._client = client if client is not None else httpx.AsyncClient(timeout=120.0)
         self._model = model
 
     async def probe(
