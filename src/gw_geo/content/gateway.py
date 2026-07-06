@@ -74,10 +74,22 @@ def build_llm_client(settings: Settings) -> LLMClient:
 
 
 def build_embedder(settings: Settings) -> EmbeddingClient:
-    """The KB `EmbeddingClient`: Portkey-backed when available, else direct OpenAI."""
-    client = build_portkey_client(settings)
-    if client is not None:
-        return PortkeyEmbeddingClient(client, model=settings.embedding_model)
+    """The KB `EmbeddingClient` -- **independent of the chat gateway** (Claude can't embed).
+
+    Use Portkey whenever a Portkey key is configured and the gateway isn't forced ``direct``, else
+    direct OpenAI. This is what lets ``llm_gateway=local_claude`` work end-to-end: chat runs on the
+    local Claude subscription ($0) while embeddings still route through Portkey's funded provider
+    (direct OpenAI may be quota-blocked). Only ``llm_gateway=direct`` forces direct OpenAI here.
+    """
+    if settings.llm_gateway != "direct" and settings.portkey_api_key:
+        return PortkeyEmbeddingClient(
+            PortkeyClient(
+                api_key=settings.portkey_api_key,
+                config=settings.portkey_config,
+                base_url=settings.portkey_base_url,
+            ),
+            model=settings.embedding_model,
+        )
     return OpenAIEmbeddingClient(api_key=settings.openai_api_key, model=settings.embedding_model)
 
 
