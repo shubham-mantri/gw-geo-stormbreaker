@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from gw_geo.billing.metering import UsageKind, record_usage
 from gw_geo.common.config import get_settings
 from gw_geo.common.models import VisibilitySnapshot
 from gw_geo.common.wiring import build_runtime
@@ -88,6 +89,20 @@ def run_measurement_job(
                 date=resolved_date,
             )
         )
+        # Billing metering (m4-design §4.1): probing dominates cost, so record the run's total
+        # sampled probes as one PROBE usage event. Skipped when nothing was sampled (no billable
+        # work, and keeps a mocked/empty run from touching an un-provisioned DB).
+        probe_units = sum(snapshot.n_samples for snapshot in snapshots)
+        if probe_units > 0:
+            record_usage(
+                session,
+                tenant_id=tenant_id,
+                brand_id=brand_id,
+                kind=UsageKind.PROBE,
+                quantity=probe_units,
+                ts=resolved_date,
+            )
+            session.commit()
     finally:
         session.close()
 

@@ -24,7 +24,7 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session as SASession
 from sqlalchemy.pool import StaticPool
 
-from gw_geo.common.db import Base, Brand as BrandRow, ContentAsset, Tenant
+from gw_geo.common.db import Base, Brand as BrandRow, ContentAsset, Tenant, UsageEvent
 from gw_geo.common.models import (
     Brand,
     ContentDraft,
@@ -308,6 +308,46 @@ def test_generate_verifies_claims_against_kb_factory_not_fixed_kb() -> None:
         brand=_BRAND, prompt_text="best crm", facts=[], feature_profile=None
     )
     assert report.claims_ok is True
+
+
+def test_generate_records_generation_usage_when_usage_session_wired() -> None:
+    # Billing metering hook: with a usage session wired (the real DB-backed path), generate records
+    # one GENERATION usage unit per asset, referencing the draft id.
+    eng = _engine()
+    with SASession(eng) as session:
+        svc = ContentService(
+            kb_factory=lambda bid: KnowledgeBase(
+                brand_id=bid, store=_NullVectorStore(), embedder=_NullEmbedder()
+            ),
+            llm=_StubLLM(),
+            corpus=_NullCorpus(),
+            claim_extractor=_NoClaims(),
+            voice_scorer=_GoodVoice(),
+            voice_profile={},
+            connectors={},
+            store=DbAssetStore(session=session, tenant_id="t1"),
+            usage_session=session,
+            id_fn=lambda: "c1",
+        )
+        svc.generate(brand=_BRAND, prompt_text="best crm", facts=[], feature_profile=None)
+
+    with SASession(eng) as session:
+        events = session.query(UsageEvent).all()
+    assert len(events) == 1
+    assert events[0].kind == "generation"
+    assert events[0].quantity == 1
+    assert events[0].source_ref == "c1"
+    assert events[0].tenant_id == "t1" and events[0].brand_id == "b1"
+
+
+def test_generate_records_no_usage_without_usage_session() -> None:
+    # The default (no usage_session) meters nothing -- existing in-memory-store behavior is intact.
+    eng = _engine()
+    with SASession(eng) as session:
+        _service(session).generate(
+            brand=_BRAND, prompt_text="best crm", facts=[], feature_profile=None
+        )
+        assert session.query(UsageEvent).count() == 0
 
 
 def test_requires_kb_or_kb_factory() -> None:

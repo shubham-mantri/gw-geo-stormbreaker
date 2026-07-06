@@ -48,14 +48,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from gw_geo.attribution.trigger import run_attribution_reconcile_job
+from gw_geo.billing.trigger import run_billing_close_job
 from gw_geo.common.config import Settings, get_settings
 from gw_geo.common.db import Brand
 from gw_geo.common.models import FeatureVector, SourceType
 from gw_geo.common.wiring import build_runtime, configured_engine_names
 from gw_geo.measurement.runner import run_measurement
 from gw_geo.measurement.trigger import run_measurement_job
+from gw_geo.orchestration.adaptation_trigger import run_adaptation_job
 from gw_geo.orchestration.opportunity_gen import run_opportunity_refresh_job
 from gw_geo.orchestration.ranking_gen import run_ranking_refresh_job
+from gw_geo.orchestration.reward import run_reward_reconcile_job
 from gw_geo.ranking.model import make_backend
 from gw_geo.ranking.runner import run_ranking
 from gw_geo.seeding.trigger import run_seeding_discovery_job
@@ -252,6 +255,60 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Max number of targets/tasks to create (highest-priority first; default: unbounded "
         "up to the discovery limit)",
     )
+
+    adapt = subparsers.add_parser(
+        "adapt",
+        help="Run one measure->sense->adapt cycle (drift canary + retrain-on-breach + off-site "
+        "target discovery) locally; opens todo tasks only (white-hat, NEVER posts/places)",
+    )
+    adapt.add_argument("--brand", required=True, help="Brand id to run the adaptation cycle for")
+    adapt.add_argument(
+        "--tenant", default="default", help="Tenant id that owns the brand (default: %(default)s)"
+    )
+    adapt.add_argument(
+        "--since", default=None,
+        help="Inclusive discovery window start YYYY-MM-DD (default: trailing 90-day window)",
+    )
+    adapt.add_argument(
+        "--until", default=None,
+        help="Inclusive discovery window end YYYY-MM-DD (default: today, UTC)",
+    )
+    adapt.add_argument(
+        "--budget", type=int, default=None,
+        help="Max new seeding tasks to spawn this cycle (highest-priority first; default: 5)",
+    )
+
+    reward_reconcile = subparsers.add_parser(
+        "reward-reconcile",
+        help="Feed aged (>= --aging-days) off-site placements' corroboration lift back onto the "
+        "seeding-effort bandit arms so the bandit accumulates (no posting)",
+    )
+    reward_reconcile.add_argument(
+        "--brand", required=True, help="Brand id to reconcile seeding-effort rewards for"
+    )
+    reward_reconcile.add_argument(
+        "--tenant", default="default", help="Tenant id that owns the brand (default: %(default)s)"
+    )
+    reward_reconcile.add_argument(
+        "--aging-days", type=int, default=14,
+        help="Min age (days) of a placed task before its corroboration counts as a reward "
+        "(default: %(default)s)",
+    )
+
+    close_billing = subparsers.add_parser(
+        "close-billing",
+        help="Meter + price one billing period and persist a DRAFT invoice (idempotent per "
+        "period); NEVER finalizes/sends -- a human does that",
+    )
+    close_billing.add_argument(
+        "--tenant", default="default", help="Tenant id to close the period for (default: %(default)s)"
+    )
+    close_billing.add_argument(
+        "--period-start", required=True, help="Period start YYYY-MM-DD (inclusive)"
+    )
+    close_billing.add_argument(
+        "--period-end", required=True, help="Period end YYYY-MM-DD (exclusive, half-open)"
+    )
     return parser
 
 
@@ -276,6 +333,12 @@ def main(argv: list[str] | None = None) -> int:
         return _run_reconcile(args)
     if args.command == "seed-discover":
         return _run_seed_discover(args)
+    if args.command == "adapt":
+        return _run_adapt(args)
+    if args.command == "reward-reconcile":
+        return _run_reward_reconcile(args)
+    if args.command == "close-billing":
+        return _run_close_billing(args)
     return 1
 
 
@@ -535,6 +598,56 @@ def _run_seed_discover(args: argparse.Namespace) -> int:
         budget=args.budget,
     )
     print(json.dumps({"brand_id": args.brand, "seeding_tasks": count}, indent=2))
+    return 0
+
+
+def _run_adapt(args: argparse.Namespace) -> int:
+    """Run one local measure->sense->adapt cycle for a brand.
+
+    Delegates to the same `run_adaptation_job` unit any future request path would call (which owns
+    its own DB session and wires the real drift canary + retrain-on-breach + discovery + workflow).
+    White-hat: it opens `todo` seeding tasks only -- it NEVER runs compliance, posts, or places.
+    Prints the `CycleResult` as JSON and returns the process exit code (`0` on success).
+    """
+    result = run_adaptation_job(
+        tenant_id=args.tenant,
+        brand_id=args.brand,
+        since=args.since,
+        until=args.until,
+        budget=args.budget,
+    )
+    print(json.dumps(result.model_dump(mode="json"), indent=2))
+    return 0
+
+
+def _run_reward_reconcile(args: argparse.Namespace) -> int:
+    """Feed aged off-site placements' corroboration lift back onto the seeding-effort bandit, locally.
+
+    Delegates to the same `run_reward_reconcile_job` unit (which owns its own DB session and wires
+    the real citation-source map). Prints the number of reward observations recorded as JSON and
+    returns the process exit code (`0` on success).
+    """
+    count = run_reward_reconcile_job(
+        tenant_id=args.tenant, brand_id=args.brand, aging_days=args.aging_days
+    )
+    print(json.dumps({"brand_id": args.brand, "rewards_recorded": count}, indent=2))
+    return 0
+
+
+def _run_close_billing(args: argparse.Namespace) -> int:
+    """Meter + price one billing period and persist a DRAFT invoice, locally.
+
+    Delegates to the same `run_billing_close_job` unit (which owns its own DB session, resolves the
+    tenant's plan, and wires the real `PipelineAttributionSource`). Idempotent per period; NEVER
+    finalizes or sends. Prints the invoice id/total/status as JSON and returns the process exit
+    code (`0` on success).
+    """
+    result = run_billing_close_job(
+        tenant_id=args.tenant,
+        period_start=args.period_start,
+        period_end=args.period_end,
+    )
+    print(json.dumps(result, indent=2))
     return 0
 
 

@@ -51,6 +51,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session as SASession
 
+from gw_geo.billing.metering import UsageKind, record_usage
 from gw_geo.common.db import ContentAsset, ContentGuardrailReport
 from gw_geo.common.models import (
     Brand,
@@ -286,6 +287,7 @@ class ContentService:
         store: AssetStore | None = None,
         thresholds: GuardrailThresholds | None = None,
         id_fn: Callable[[], str] | None = None,
+        usage_session: SASession | None = None,
     ) -> None:
         if kb is None and kb_factory is None:
             raise ValueError("ContentService requires either `kb` or `kb_factory`")
@@ -299,6 +301,10 @@ class ContentService:
         self._connectors = connectors
         self._thresholds = thresholds
         self._id_fn = id_fn
+        # Optional billing-metering seam: when a session is injected (the real DB-backed wiring), a
+        # GENERATION usage unit is recorded per generated asset. `None` (the hermetic in-memory
+        # default) meters nothing, so existing in-memory tests are unaffected.
+        self._usage_session = usage_session
         # Authoritative server-side (draft, report) per (tenant_id, content_id) -- the id-addressed
         # approve/publish endpoints resolve against this, never a client-supplied draft, and never
         # across a tenant boundary (the tuple key is the IDOR fix). The store abstracts whether that
@@ -363,6 +369,19 @@ class ContentService:
             thresholds=self._thresholds,
         )
         self._store.save(draft, report)
+        # Billing metering (m4-design §4.1): one GENERATION unit per generated on-site asset,
+        # recorded after the asset is saved. Only when a usage session is wired (see __init__).
+        if self._usage_session is not None:
+            record_usage(
+                self._usage_session,
+                tenant_id=draft.tenant_id,
+                brand_id=draft.brand_id,
+                kind=UsageKind.GENERATION,
+                quantity=1,
+                ts=_utcnow().isoformat(),
+                source_ref=draft.id,
+            )
+            self._usage_session.commit()
         return draft, report
 
     def get_asset(

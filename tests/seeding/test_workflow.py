@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from gw_geo.common.db import Base, Brand, Tenant
+from gw_geo.common.db import Base, Brand, Tenant, UsageEvent
 from gw_geo.seeding.briefs import SeedingBrief
 from gw_geo.seeding.compliance import ComplianceEngine, ComplianceError, PlacementProposal
 from gw_geo.seeding.workflow import (  # SeedingTask re-exported or from db
@@ -47,6 +47,36 @@ def test_clean_proposal_flows_to_placed():
     assert rep.passed is True
     wf.mark_placed(tid, placed_url="https://reddit.com/r/x/comments/1", actor="alice")
     assert s.get(SeedingTask, tid).status == SeedingStatus.PLACED
+
+
+def test_mark_placed_records_seeding_placement_usage():
+    # Billing metering hook: a successful placement records one SEEDING_PLACEMENT usage unit
+    # (metering only -- the human-only, compliance-gated transition itself is unchanged).
+    wf, s = _wf()
+    tid = wf.create(brand_id="b1", channel="reddit")
+    good = PlacementProposal(channel="reddit", body="Genuine comparison of CRMs.",
+                             disclosure_text="Disclosure: I work at Acme.", author_is_real=True)
+    wf.run_compliance(tid, good)
+    wf.mark_placed(tid, placed_url="https://reddit.com/r/x/comments/1", actor="alice")
+
+    events = s.query(UsageEvent).all()
+    assert len(events) == 1
+    assert events[0].kind == "seeding_placement"
+    assert events[0].quantity == 1
+    assert events[0].source_ref == tid
+    assert events[0].tenant_id == "t1" and events[0].brand_id == "b1"
+
+
+def test_blocked_placement_records_no_usage():
+    # A gate-blocked placement is refused before the metering line -> no usage recorded.
+    wf, s = _wf()
+    tid = wf.create(brand_id="b1", channel="reddit")
+    bad = PlacementProposal(channel="reddit", body="Acme rules", disclosure_text="",
+                            author_is_real=False)
+    wf.run_compliance(tid, bad)
+    with pytest.raises(ComplianceError):
+        wf.mark_placed(tid, placed_url="https://reddit.com/x", actor="alice")
+    assert s.query(UsageEvent).count() == 0
 
 
 def test_blocked_proposal_cannot_be_placed():
