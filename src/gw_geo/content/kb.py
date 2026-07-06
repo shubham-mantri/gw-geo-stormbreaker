@@ -222,9 +222,21 @@ class PgVectorStore:
     a fake `VectorStore`).
     """
 
+    # `table` is interpolated into SQL via an f-string (below), so it must be a trusted SQL
+    # identifier, never attacker-controlled. It has a constant default and no caller ever sets it
+    # from user input today; this guard is defense-in-depth so it can't silently become an
+    # injection vector if a future caller does pass it. A bare table identifier only:
+    # a leading letter/underscore then letters/digits/underscores (no quotes, dots, or whitespace).
+    _SAFE_TABLE_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+
     def __init__(
         self, *, database_url: str, brand_id: str, table: str = "kb_fact_embedding"
     ) -> None:
+        if not self._SAFE_TABLE_RE.match(table):
+            raise ValueError(
+                f"PgVectorStore table name {table!r} is not a safe SQL identifier; it must remain a "
+                f"trusted constant (matching {self._SAFE_TABLE_RE.pattern!r}), never user input."
+            )
         self._database_url = database_url
         self._brand_id = brand_id
         self._table = table

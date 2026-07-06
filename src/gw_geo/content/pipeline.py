@@ -216,6 +216,9 @@ class DbAssetStore:
             brand_voice_ok=report_row.brand_voice_ok,
             brand_voice_score=report_row.brand_voice_score,
             passed=report_row.passed,
+            # `originality_enforced` has no column (no schema change for an audit-only flag), so a
+            # reloaded report takes the model default (True). The truthful, durable signal for the
+            # LOCAL no-corpus case is the generation-time `logger.warning` in `api/wiring.py`.
         )
         return draft, report
 
@@ -288,6 +291,7 @@ class ContentService:
         thresholds: GuardrailThresholds | None = None,
         id_fn: Callable[[], str] | None = None,
         usage_session: SASession | None = None,
+        originality_enforced: bool = True,
     ) -> None:
         if kb is None and kb_factory is None:
             raise ValueError("ContentService requires either `kb` or `kb_factory`")
@@ -301,6 +305,11 @@ class ContentService:
         self._connectors = connectors
         self._thresholds = thresholds
         self._id_fn = id_fn
+        # M5 review (honesty): recorded onto each generated `GuardrailReport` as an audit signal.
+        # The real-wiring path (`api/wiring.py`) passes `False` because it injects a no-op corpus
+        # (no `CorpusSearch` backend configured), so originality is not actually enforced. This does
+        # NOT gate `passed` -- see `run_guardrails` / `GuardrailReport.originality_enforced`.
+        self._originality_enforced = originality_enforced
         # Optional billing-metering seam: when a session is injected (the real DB-backed wiring), a
         # GENERATION usage unit is recorded per generated asset. `None` (the hermetic in-memory
         # default) meters nothing, so existing in-memory tests are unaffected.
@@ -367,6 +376,7 @@ class ContentService:
             voice_scorer=self._voice_scorer,
             voice_profile=self._voice_profile,
             thresholds=self._thresholds,
+            originality_enforced=self._originality_enforced,
         )
         self._store.save(draft, report)
         # Billing metering (m4-design §4.1): one GENERATION unit per generated on-site asset,

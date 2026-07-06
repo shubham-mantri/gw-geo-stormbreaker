@@ -6,7 +6,9 @@ ON (Tenant -> Brand -> SeedingTask/bandit_arm_effort seeded parents-first).
 
 The reward = corroboration *lift* (new count - previously recorded), clamped to [0, 1], recorded
 onto the effort bandit arm `f"{channel}:default"` so the bandit accumulates -- exactly the delayed,
-one-observation-per-call reward path `effort.record_reward` documents.
+one-observation-per-call reward path `effort.record_reward` documents. Post-M5, a reward is recorded
+**only when the corroboration advances** (lift > 0): a still-`placed`, uncorroborated task is not
+re-rewarded 0 on every run, so its pull count can't be inflated.
 """
 
 from __future__ import annotations
@@ -86,7 +88,10 @@ def test_rewards_aged_placed_task_with_corroboration_lift() -> None:
     assert task.status == "corroborated"  # placed -> corroborated once corroboration > 0
 
 
-def test_zero_reward_when_no_corroboration_still_records_a_pull() -> None:
+def test_no_reward_recorded_when_corroboration_does_not_advance() -> None:
+    # M5 review: a still-`placed`, uncorroborated task must NOT be re-rewarded 0 on every run --
+    # recording a reward-0 pull each reconcile would inflate the arm's pull count and bias the
+    # bandit. No advance (lift 0) -> no reward, no pull, no arm row, and it stays `placed`.
     s = _session()
     _placed_task(s, task_id="st1", channel="quora", age_days=30)
 
@@ -95,10 +100,24 @@ def test_zero_reward_when_no_corroboration_still_records_a_pull() -> None:
         source_map=FakeSourceMap([]), aging_days=14, now=_NOW,
     )
 
-    assert n == 1
-    arm = _arm(s, "quora:default")
-    assert arm is not None and arm.pulls == 1 and arm.reward_sum == 0.0
+    assert n == 0
+    assert _arm(s, "quora:default") is None  # no pull recorded for a non-advancing task
     assert s.get(SeedingTask, "st1").status == "placed"  # no corroboration -> not advanced
+
+
+def test_uncorroborated_task_is_not_re_rewarded_across_runs() -> None:
+    # The bias the fix targets: repeated reconcile runs over the same never-corroborated task must
+    # never accumulate pulls. Three runs, still no corroboration -> arm still absent (0 pulls).
+    s = _session()
+    _placed_task(s, task_id="st1", channel="quora", age_days=30)
+
+    for _ in range(3):
+        run_reward_reconcile(
+            session=s, tenant_id=TENANT, brand_id=BRAND,
+            source_map=FakeSourceMap([]), aging_days=14, now=_NOW,
+        )
+
+    assert _arm(s, "quora:default") is None
 
 
 def test_skips_task_not_yet_aged() -> None:
@@ -129,8 +148,10 @@ def test_skips_non_placed_tasks() -> None:
 
 def test_run_reward_reconcile_job_owns_session_and_wires_source_map(tmp_path, monkeypatch) -> None:
     # The job opens its own session from settings.database_url and wires the real CitationSourceMap.
-    # With no AnswerExtraction data seeded, corroboration is 0 -> reward 0, but the arm still
-    # accumulates a pull (proving the job's session + source map + reward path are all wired).
+    # With no AnswerExtraction data seeded, corroboration stays 0 -> the placement does not advance,
+    # so (post-M5) NO reward is recorded and no arm row is created. This still exercises the job's
+    # full wiring end-to-end (own session + real CitationSourceMap + the advance-guarded reward path)
+    # and proves the re-sweep guard holds through the real source map, not just the injected fake.
     url = f"sqlite:///{tmp_path / 'reward.db'}"
     eng = create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(eng)
@@ -147,9 +168,9 @@ def test_run_reward_reconcile_job_owns_session_and_wires_source_map(tmp_path, mo
     monkeypatch.setattr(reward_mod, "get_settings", lambda: Settings(database_url=url))
     n = run_reward_reconcile_job(tenant_id=TENANT, brand_id=BRAND, aging_days=14)
 
-    assert n == 1
+    assert n == 0  # no corroboration advance -> no reward observation recorded
     with Session(eng) as s:
         arm = s.query(EffortBanditArm).filter_by(
             tenant_id=TENANT, brand_id=BRAND, arm_key="reddit:default"
         ).one_or_none()
-        assert arm is not None and arm.pulls == 1 and arm.reward_sum == 0.0
+        assert arm is None  # no spurious reward-0 pull for a non-advancing task

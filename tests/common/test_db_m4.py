@@ -187,6 +187,46 @@ def test_bandit_arm_effort_unique_per_tenant_brand_arm_key() -> None:
         s.commit()
 
 
+def test_billing_invoice_unique_per_tenant_period() -> None:
+    # M5 review: (tenant_id, period_start, period_end) is UNIQUE -- a durable backstop for the
+    # period-close job's check-then-insert idempotency guard, so a retried/concurrent close can
+    # never persist a second draft for the same period.
+    s = _session()
+    s.add(
+        BillingInvoice(
+            id="inv1",
+            tenant_id="t1",
+            period_start="2026-06-01",
+            period_end="2026-06-30",
+            base_fee=500.0,
+            usage_charges={},
+            raas_charge=0.0,
+            attributed_leads=0,
+            attributed_pipeline_usd=0.0,
+            total=500.0,
+            status="draft",
+        )
+    )
+    s.commit()
+    s.add(
+        BillingInvoice(
+            id="inv2",  # different id, same (tenant_id, period_start, period_end)
+            tenant_id="t1",
+            period_start="2026-06-01",
+            period_end="2026-06-30",
+            base_fee=500.0,
+            usage_charges={},
+            raas_charge=0.0,
+            attributed_leads=0,
+            attributed_pipeline_usd=0.0,
+            total=500.0,
+            status="draft",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        s.commit()
+
+
 def test_usage_event_and_billing_invoice_roundtrip() -> None:
     s = _session()
     s.add(

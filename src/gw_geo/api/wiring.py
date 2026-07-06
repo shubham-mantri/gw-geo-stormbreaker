@@ -12,10 +12,14 @@ suite.
 
 Residual stubs (surfaced in the task report's CONCERNS):
 
-* ``_NoCorpus`` -- no web/corpus-search backend is configured, so the **originality** guardrail has
-  nothing to compare a draft against and passes trivially. Claim-verification (KB-grounded) and
-  brand-voice are fully wired; a real :class:`~gw_geo.content.guardrails.originality.CorpusSearch`
-  (e.g. ``WebCorpusSearch``) is the follow-on.
+* ``_NoCorpus`` -- no web/corpus-search backend is configured (LOCAL-only, no SERP), so the
+  **originality** guardrail has nothing to compare a draft against and passes trivially. This is NOT
+  hidden (M5 review): ``build_content_service`` emits a `logger.warning` and stamps
+  ``originality_enforced=False`` onto every generated `GuardrailReport`, so a plagiarized draft can
+  never pass *silently* -- the gap is auditable, and human ``editor+`` approval + KB claim-grounding
+  remain the enforced gates. Claim-verification (KB-grounded) and brand-voice are fully wired; a
+  real :class:`~gw_geo.content.guardrails.originality.CorpusSearch` (e.g. ``WebCorpusSearch``) is
+  the follow-on that re-enables originality enforcement.
 * ``voice_profile={}`` -- brands carry no persisted voice profile yet, so brand-voice scores against
   an empty profile. Persisting a per-brand voice profile is a follow-on.
 * Opportunity *population* -- these providers surface/act on `Opportunity` rows a separate ranking
@@ -25,6 +29,7 @@ Residual stubs (surfaced in the task report's CONCERNS):
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Annotated
 
@@ -45,10 +50,22 @@ from gw_geo.content.pipeline import ContentService, DbAssetStore
 from gw_geo.content.publish.wiring import register_default_connectors
 from gw_geo.orchestration.opportunity_service import DbOpportunityService
 
+logger = logging.getLogger(__name__)
+
 
 class _NoCorpus:
-    """Residual: no corpus/web-search backend configured, so originality has nothing to match
-    against (passes trivially). Wiring a real ``CorpusSearch`` is a follow-on."""
+    """Residual (M5 review): **originality is NOT enforced** in the LOCAL-only default wiring.
+
+    A real plagiarism check needs a web/corpus-search source we deliberately do not have here
+    (LOCAL-only, no SERP), so this stub returns ``[]`` -- meaning `check_originality` compares the
+    draft against nothing and ``originality_ok`` is trivially ``True``. This is an **honest no-op**,
+    not a real guardrail: `build_content_service` emits a `logger.warning` when it selects this stub
+    and stamps ``originality_enforced=False`` onto every generated `GuardrailReport` so the gap is
+    visible/auditable rather than silent. It does NOT weaken the actual gates -- human ``editor+``
+    approval and KB claim-grounding still block publish. Wiring a real
+    :class:`~gw_geo.content.guardrails.originality.CorpusSearch` (e.g. ``WebCorpusSearch``) is the
+    follow-on that would flip originality back to enforced.
+    """
 
     def search(self, text: str, *, top_k: int = 5) -> list[tuple[str, str]]:
         return []
@@ -63,8 +80,23 @@ def build_content_service(
     Portkey-or-direct gateway (``content.gateway``); the store is a :class:`DbAssetStore` over this
     request's session; connectors fall back to the shared registry populated by
     ``register_default_connectors`` (``hosted`` is always available). Construction is I/O-free.
+
+    **Originality is NOT enforced here (M5 review, honesty).** No ``CorpusSearch`` backend is
+    configured in the LOCAL-only build, so a ``_NoCorpus`` stub is injected: the originality
+    guardrail has nothing to compare against and passes trivially. We surface this rather than hide
+    it -- a `logger.warning` on every build, and ``originality_enforced=False`` stamped onto every
+    generated `GuardrailReport`. This is an audit signal only; it does not change what blocks
+    publish (human ``editor+`` approval + KB claim-grounding remain the real gates). Wiring a real
+    ``CorpusSearch`` is the follow-on that re-enables it.
     """
     register_default_connectors(settings)
+    logger.warning(
+        "content service for tenant_id=%s built WITHOUT originality enforcement: no CorpusSearch "
+        "backend configured (LOCAL-only), so the plagiarism guardrail passes trivially. "
+        "originality_enforced=False is recorded on every GuardrailReport; human editor+ approval "
+        "and KB claim-grounding remain the enforced gates.",
+        tenant_id,
+    )
     return ContentService(
         kb_factory=build_kb_factory(settings),
         llm=build_llm_client(settings),
@@ -75,6 +107,7 @@ def build_content_service(
         connectors={},
         store=DbAssetStore(session=session, tenant_id=tenant_id),
         usage_session=session,
+        originality_enforced=False,
     )
 
 
