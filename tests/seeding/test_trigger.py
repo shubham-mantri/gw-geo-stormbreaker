@@ -203,3 +203,13 @@ def test_job_owns_session_and_persists_todo_tasks(
             assert t.compliance_report == {}
             assert t.compliance_status == "pending"
             assert t.placed_url is None
+
+
+def test_llm_configured_recognizes_local_claude() -> None:
+    # local_claude needs no key (Claude Max subscription) -> briefing is enabled; direct w/o a key
+    # is not; portkey needs its key. Mirrors content.gateway.build_llm_client's routing.
+    assert trigger._llm_configured(Settings(llm_gateway="local_claude"))
+    assert not trigger._llm_configured(Settings(llm_gateway="direct", anthropic_api_key=""))
+    assert trigger._llm_configured(Settings(llm_gateway="direct", anthropic_api_key="a"))
+    assert trigger._llm_configured(Settings(llm_gateway="portkey", portkey_api_key="pk"))
+    assert not trigger._llm_configured(Settings(llm_gateway="portkey", portkey_api_key=""))

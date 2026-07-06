@@ -26,7 +26,17 @@ from typing import Any, Protocol
 import httpx
 
 from gw_geo.common.portkey import PortkeyClient
+from gw_geo.content.generate import LLMClient
 from gw_geo.content.kb import KnowledgeBase
+
+# System turn used only on the local-Claude (`LLMClient`) path -- the direct-Anthropic / Portkey
+# transports carry the instruction in the user turn (no system turn). Parse behavior is identical:
+# every path reads the `claims` list off the same `_input_schema()`.
+_CLAIMS_SYSTEM = (
+    "You extract the atomic, checkable factual claims from a content draft (each a stat, "
+    "certification, pricing detail, or similar assertion). Respond only via the requested tool "
+    "call / structured output."
+)
 
 
 class ClaimExtractor(Protocol):
@@ -75,16 +85,19 @@ def _is_grounded(claim: str, *, kb: KnowledgeBase, sim_threshold: float) -> bool
 class LLMClaimExtractor:
     """`ClaimExtractor` backed by an LLM in structured-output (JSON) mode.
 
-    Two transports, same prompt + same parsed result (a list of claim strings): by default it calls
-    the Claude Messages API directly via `httpx` (tool-use / `anthropic`-SDK-free); when an optional
-    `PortkeyClient` is injected it instead sends the identical prompt through the Portkey gateway's
-    OpenAI-shaped `/chat/completions`, forcing the same schema via an OpenAI-style function tool
-    (`tools` + `tool_choice`) and reading the claims out of
-    `choices[0].message.tool_calls[0].function.arguments`. Function calling (mapped by Portkey to
-    Anthropic tool-use) is used rather than `response_format` for the same reason as the LLM client:
-    it maps to the provider's lenient tool-use, avoiding the strict structured-output failure class.
-    Never called by the unit test suite (tests inject a stub `ClaimExtractor` per `docs/trd.md` §12);
-    the Portkey path is exercised in `tests/content/test_gateway.py` against a mocked transport.
+    Three transports, same prompt + same parsed result (a list of claim strings): by default it
+    calls the Claude Messages API directly via `httpx` (tool-use / `anthropic`-SDK-free); when an
+    optional `PortkeyClient` is injected it instead sends the identical prompt through the Portkey
+    gateway's OpenAI-shaped `/chat/completions`, forcing the same schema via an OpenAI-style function
+    tool (`tools` + `tool_choice`) and reading the claims out of
+    `choices[0].message.tool_calls[0].function.arguments`; when an optional local-Claude `LLMClient`
+    is injected (gateway `local_claude`) it goes through `LLMClient.complete(..., schema=...)` -- the
+    same structured contract as generation -- reading `claims` off the returned dict, for a $0
+    subscription-billed run. Function calling (mapped by Portkey to Anthropic tool-use) is used
+    rather than `response_format` for the same reason as the LLM client: it maps to the provider's
+    lenient tool-use, avoiding the strict structured-output failure class. Never called by the unit
+    test suite (tests inject a stub `ClaimExtractor` per `docs/trd.md` §12); the Portkey + local
+    paths are exercised in `tests/content/test_gateway.py` against mocked transports.
     """
 
     _API_URL = "https://api.anthropic.com/v1/messages"
@@ -99,6 +112,7 @@ class LLMClaimExtractor:
         model: str | None = None,
         timeout: float = 30.0,
         portkey: PortkeyClient | None = None,
+        llm: LLMClient | None = None,
     ) -> None:
         self._api_key = (
             api_key if api_key is not None else os.environ.get("GEO_ANTHROPIC_API_KEY", "")
@@ -106,8 +120,16 @@ class LLMClaimExtractor:
         self._model = model or self._DEFAULT_MODEL
         self._timeout = timeout
         self._portkey = portkey
+        self._llm = llm
 
     def extract_claims(self, text: str) -> list[str]:
+        if self._llm is not None:
+            result = self._llm.complete(
+                system=_CLAIMS_SYSTEM, prompt=self._prompt(text), schema=self._input_schema()
+            )
+            local_claims: list[str] = result["claims"]
+            return local_claims
+
         if self._portkey is not None:
             payload = self._portkey.chat_completion(
                 model=self._model,

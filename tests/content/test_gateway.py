@@ -31,6 +31,7 @@ from gw_geo.content.generate import (
 from gw_geo.content.guardrails.brand_voice import LLMVoiceScorer
 from gw_geo.content.guardrails.claims import LLMClaimExtractor
 from gw_geo.content.kb import OpenAIEmbeddingClient, PortkeyEmbeddingClient
+from gw_geo.content.llm_local import LocalClaudeCliClient
 
 BASE = "https://api.portkey.ai/v1"
 BRAND = Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com")
@@ -285,3 +286,69 @@ def test_build_voice_scorer_portkey_routes_through_gateway() -> None:
     result = build_voice_scorer(s).score("draft", {"tone": "t", "banned": []})
     assert result == {"score": 0.8, "violations": []}
     assert route.called
+
+
+# --------------------------------------------------------------------------------------------
+# Local Claude CLI gateway (llm_gateway="local_claude") -- subscription-billed, $0 API
+# --------------------------------------------------------------------------------------------
+
+
+class _StubLLM:
+    """A minimal `LLMClient` recording its calls and returning a canned structured dict."""
+
+    def __init__(self, result: dict[str, object]) -> None:
+        self._result = result
+        self.calls: list[tuple[str, str, object]] = []
+
+    def complete(
+        self, *, system: str, prompt: str, schema: object = None
+    ) -> dict[str, object]:
+        self.calls.append((system, prompt, schema))
+        return self._result
+
+
+def test_build_llm_client_local_claude_returns_local_cli_client() -> None:
+    # local_claude wins over both portkey and direct (no key needed -- the Claude Max subscription).
+    client = build_llm_client(Settings(llm_gateway="local_claude", portkey_api_key="pk"))
+    assert isinstance(client, LocalClaudeCliClient)
+
+
+def test_build_llm_client_selects_all_three_gateways() -> None:
+    assert isinstance(build_llm_client(Settings(llm_gateway="local_claude")), LocalClaudeCliClient)
+    assert isinstance(
+        build_llm_client(Settings(llm_gateway="portkey", portkey_api_key="pk")), PortkeyLLMClient
+    )
+    assert isinstance(
+        build_llm_client(Settings(llm_gateway="direct", anthropic_api_key="a")), AnthropicLLMClient
+    )
+
+
+def test_build_claim_extractor_local_claude_routes_to_local_client() -> None:
+    extractor = build_claim_extractor(Settings(llm_gateway="local_claude"))
+    assert isinstance(extractor, LLMClaimExtractor)
+    assert isinstance(extractor._llm, LocalClaudeCliClient)  # wired to the $0 subscription backend
+
+
+def test_build_voice_scorer_local_claude_routes_to_local_client() -> None:
+    scorer = build_voice_scorer(Settings(llm_gateway="local_claude"))
+    assert isinstance(scorer, LLMVoiceScorer)
+    assert isinstance(scorer._llm, LocalClaudeCliClient)
+
+
+def test_llm_claim_extractor_local_seam_reads_claims_off_dict() -> None:
+    # The local-Claude seam goes through LLMClient.complete(..., schema=...) and reads `claims`.
+    stub = _StubLLM({"claims": ["Acme is SOC2 Type II certified"]})
+    claims = LLMClaimExtractor(llm=stub).extract_claims("Acme is SOC2 Type II certified. Great.")
+    assert claims == ["Acme is SOC2 Type II certified"]
+    system, prompt, schema = stub.calls[0]
+    assert isinstance(schema, dict) and "claims" in schema["properties"]  # forced structured schema
+    assert "Acme is SOC2 Type II certified. Great." in prompt
+
+
+def test_llm_voice_scorer_local_seam_returns_dict() -> None:
+    stub = _StubLLM({"score": 0.9, "violations": []})
+    result = LLMVoiceScorer(llm=stub).score("draft", {"tone": "friendly", "banned": ["synergy"]})
+    assert result == {"score": 0.9, "violations": []}
+    _system, prompt, schema = stub.calls[0]
+    assert isinstance(schema, dict) and set(schema["properties"]) == {"score", "violations"}
+    assert "synergy" in prompt  # banned term carried into the prompt

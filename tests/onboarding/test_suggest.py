@@ -67,6 +67,11 @@ class RaisingLLM:
 _NO_COMPETITORS = FakeLLM({"competitors": []})
 
 
+def _named_llm(name: str) -> FakeLLM:
+    """A `FakeLLM` that returns a fixed brand ``name`` and no competitors."""
+    return FakeLLM({"name": name, "competitors": []})
+
+
 # --- normalize_url ---------------------------------------------------------------------------
 
 
@@ -80,10 +85,18 @@ def test_normalize_url_keeps_existing_scheme() -> None:
     assert normalize_url("https://acme.com/x") == "https://acme.com/x"
 
 
-# --- brand name extraction: priority order ---------------------------------------------------
+# --- brand name: from the LLM (domain + page hint), domain heuristic only when the name is empty --
 
 
-def test_name_from_jsonld_organization_wins() -> None:
+def test_llm_name_is_used_verbatim() -> None:
+    # The LLM derives the name from the domain; it wins over the domain heuristic.
+    fetcher = FakeFetcher(FetchedPage(text="body text"))
+    out = suggest_brand_details(domain="acme.com", fetcher=fetcher, llm=_named_llm("Acme Robotics"))
+    assert out.name == "Acme Robotics"
+    assert fetcher.fetched_url == "https://acme.com"  # fetched the normalized URL (for the hint)
+
+
+def test_jsonld_name_passed_as_hint_and_beats_og_and_title() -> None:
     html = """
     <html><head>
       <title>Home | Some Boilerplate</title>
@@ -93,48 +106,60 @@ def test_name_from_jsonld_organization_wins() -> None:
       </script>
     </head><body>hi</body></html>
     """
-    fetcher = FakeFetcher(FetchedPage(text=html))
-    out = suggest_brand_details(domain="acme.com", fetcher=fetcher, llm=_NO_COMPETITORS)
-    assert out.name == "Acme Robotics"  # JSON-LD beats og:site_name and <title>
-    assert fetcher.fetched_url == "https://acme.com"  # fetched the normalized URL
+    llm = _named_llm("Acme Robotics Inc")
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
+    assert out.name == "Acme Robotics Inc"                # name comes from the LLM
+    assert "Acme Robotics" in (llm.seen_prompt or "")     # JSON-LD name fed as the hint (beats og/title)
 
 
-def test_name_from_jsonld_nested_graph_website() -> None:
-    html = """
-    <script type="application/ld+json">
-      {"@graph":[{"@type":"WebSite","name":"Graph Site"}]}
-    </script>
-    """
-    out = suggest_brand_details(
-        domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=_NO_COMPETITORS
-    )
-    assert out.name == "Graph Site"
+def test_jsonld_nested_graph_website_passed_as_hint() -> None:
+    html = '<script type="application/ld+json">{"@graph":[{"@type":"WebSite","name":"Graph Site"}]}</script>'
+    llm = _named_llm("Graph Site")
+    suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
+    assert "Graph Site" in (llm.seen_prompt or "")
 
 
-def test_name_from_og_site_name_when_no_jsonld() -> None:
+def test_og_site_name_used_as_hint_when_no_jsonld() -> None:
     html = '<head><meta property="og:site_name" content="Acme OG"><title>Acme | CRM</title></head>'
-    out = suggest_brand_details(
-        domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=_NO_COMPETITORS
-    )
-    assert out.name == "Acme OG"
+    llm = _named_llm("Acme")
+    suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
+    assert "Acme OG" in (llm.seen_prompt or "")  # og:site_name beats <title> for the hint
 
 
-def test_name_from_title_strips_trailing_boilerplate() -> None:
-    for title, expected in [
-        ("Acme | The best CRM for startups", "Acme"),
-        ("Acme - Home", "Acme"),
-        ("Acme – Sales software", "Acme"),  # en dash
-        ("Acme Corp", "Acme Corp"),  # no separator: whole title
+def test_title_hint_strips_trailing_boilerplate() -> None:
+    # The <title> hint has its " | tagline"/" - …" boilerplate stripped before it reaches the prompt.
+    for title, expected_hint, boilerplate in [
+        ("Acme | The best CRM for startups", "Acme", "The best CRM"),
+        ("Acme – Sales software", "Acme", "Sales software"),  # en dash
     ]:
         html = f"<head><title>{title}</title></head>"
-        out = suggest_brand_details(
-            domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=_NO_COMPETITORS
-        )
-        assert out.name == expected, title
+        llm = _named_llm("Acme")
+        suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
+        prompt = llm.seen_prompt or ""
+        assert f"'{expected_hint}'" in prompt and boilerplate not in prompt, title
 
 
-def test_name_falls_back_to_domain_heuristic() -> None:
-    # No parseable markup (visible text only, as the real HttpxPageFetcher returns) -> heuristic.
+def test_visible_text_snippet_used_as_hint_when_no_markup() -> None:
+    # The real HttpxPageFetcher returns visible text only -> a bounded snippet becomes the hint.
+    llm = _named_llm("Acme")
+    suggest_brand_details(
+        domain="acme.com",
+        fetcher=FakeFetcher(FetchedPage(text="Welcome to Acme, the CRM built for teams")),
+        llm=llm,
+    )
+    assert "Welcome to Acme" in (llm.seen_prompt or "")
+
+
+def test_no_page_hint_when_fetch_returns_none() -> None:
+    llm = _named_llm("Acme")
+    suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    prompt = llm.seen_prompt or ""
+    assert "acme.com" in prompt          # the domain always drives the prompt
+    assert "Hint read off" not in prompt  # no page -> no hint line
+
+
+def test_name_falls_back_to_domain_when_llm_name_empty() -> None:
+    # LLM returns no name (visible-text page, no markup) -> the domain heuristic fills it in.
     out = suggest_brand_details(
         domain="acme.com",
         fetcher=FakeFetcher(FetchedPage(text="just some visible body text, no head")),
@@ -144,6 +169,7 @@ def test_name_falls_back_to_domain_heuristic() -> None:
 
 
 def test_domain_heuristic_strips_www_and_tld_and_splits() -> None:
+    # When the LLM returns no name, the domain heuristic is the fallback.
     cases = {
         "acme.com": "Acme",
         "https://www.acme.com/": "Acme",
@@ -158,17 +184,17 @@ def test_domain_heuristic_strips_www_and_tld_and_splits() -> None:
 
 
 def test_fetch_failure_never_raises_and_uses_domain() -> None:
-    # fetcher.fetch raising must not propagate -- onboarding still works via the heuristic.
+    # fetcher.fetch raising must not propagate -- onboarding still works (hint dropped, heuristic name).
     out = suggest_brand_details(domain="acme.com", fetcher=RaisingFetcher(), llm=_NO_COMPETITORS)
     assert out.name == "Acme"
     assert out.competitors == []
 
 
-def test_fetch_returns_none_uses_domain() -> None:
-    out = suggest_brand_details(
-        domain="globex.com", fetcher=FakeFetcher(None), llm=_NO_COMPETITORS
-    )
+def test_llm_failure_falls_back_to_domain_name() -> None:
+    # LLM raising -> no name, no competitors -> domain heuristic name, empty competitors, no 5xx.
+    out = suggest_brand_details(domain="globex.com", fetcher=FakeFetcher(None), llm=RaisingLLM())
     assert out.name == "Globex"
+    assert out.competitors == []
 
 
 # --- competitors -----------------------------------------------------------------------------
@@ -176,15 +202,15 @@ def test_fetch_returns_none_uses_domain() -> None:
 
 def test_competitors_parsed_to_name_list() -> None:
     llm = FakeLLM(
-        {"competitors": [{"name": "Beta", "domain": "beta.com"}, {"name": "Gamma"}]}
+        {"name": "Acme", "competitors": [{"name": "Beta", "domain": "beta.com"}, {"name": "Gamma"}]}
     )
     out = suggest_brand_details(
         domain="acme.com", fetcher=FakeFetcher(None), llm=llm
     )
     assert out.competitors == ["Beta", "Gamma"]  # names only, list[str]
-    # The LLM was actually prompted with a structured-output schema (tool-call pattern).
+    # The LLM was actually prompted with a structured-output schema (tool-call pattern) for the domain.
     assert llm.seen_schema is not None
-    assert "Acme" in (llm.seen_prompt or "")
+    assert "acme.com" in (llm.seen_prompt or "")
 
 
 def test_competitors_dedupe_cap_and_exclude_self() -> None:

@@ -64,12 +64,15 @@ def _default_window() -> tuple[str, str]:
 
 
 def _llm_configured(settings: Settings) -> bool:
-    """True iff a chat LLM is keyed (Portkey gateway keyed, or a direct Anthropic key).
+    """True iff a chat LLM is available (local Claude subscription, Portkey keyed, or Anthropic key).
 
-    Mirrors `content.gateway.build_llm_client`'s own routing: Portkey-backed when the gateway is
-    selected and keyed, else direct Anthropic (which needs `anthropic_api_key`). When neither is
-    present, briefing is skipped and discovery still opens `todo` tasks -- fully local, no gateway.
+    Mirrors `content.gateway.build_llm_client`'s own routing: the local `claude -p` gateway needs
+    no key (Claude Max subscription), Portkey needs `portkey_api_key`, and direct needs
+    `anthropic_api_key`. When none is present, briefing is skipped and discovery still opens `todo`
+    tasks -- fully local, no gateway.
     """
+    if settings.llm_gateway == "local_claude":
+        return True
     if settings.llm_gateway == "portkey" and settings.portkey_api_key:
         return True
     return bool(settings.anthropic_api_key)

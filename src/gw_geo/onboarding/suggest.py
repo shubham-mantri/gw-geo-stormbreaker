@@ -1,25 +1,28 @@
-"""Domain-first onboarding auto-fill (M5): from a bare domain, propose the brand's **name** (read
-off its own site) and a list of likely **competitors** (via the LLM gateway) -- both pre-filled and
-fully editable by the user in the onboarding wizard.
+"""Domain-first onboarding auto-fill (M5): from a bare domain, propose the brand's **name** and a
+list of likely **competitors** in one LLM call -- both pre-filled and fully editable by the user in
+the onboarding wizard.
 
 Two injected seams, so the whole module is hermetic and makes **no** network/LLM call under test:
 
 - ``fetcher: PageFetcher`` -- the ranking crawler's fetch seam (:mod:`gw_geo.ranking.fetch`). The
   production wiring injects the SSRF-guarded :class:`~gw_geo.ranking.fetch.HttpxPageFetcher`, so this
   module never opens its own socket and inherits that guard; tests inject a dict/markup-backed fake.
+  Its only role here is to surface a *name hint* (a parsed ``<title>``/``og:site_name``/JSON-LD name,
+  or a bounded snippet of the page's visible text) that is fed into the LLM prompt.
 - ``llm: LLMClient`` -- the content engine's generation seam (:mod:`gw_geo.content.generate`), reused
-  verbatim so competitor suggestion goes through the same Portkey-routed, forced-tool-call structured
-  output the content pipeline uses; tests inject a canned fake.
+  verbatim so this call goes through the same flag-selected backend the content pipeline uses
+  (local Claude by default, else Portkey/direct); tests inject a canned fake.
 
-Both suggestions are *best-effort and non-fatal*: a fetch failure degrades the name to a
-domain-derived heuristic, and any LLM failure/empty/malformed response yields ``[]`` competitors --
+The LLM returns ``{name, competitors}``: it derives the brand name from the **domain** (refined by
+the page hint when available), which is more accurate than a visible-text parse -- in prod the
+fetched page is stripped to visible text, so the ``<title>``/JSON-LD parsers don't fire and a
+markup-only name resolver would always fall to the crude domain heuristic. That heuristic
+(:func:`_name_from_domain`) is used **only** when the LLM's name comes back empty.
+
+Both suggestions are *best-effort and non-fatal*: a fetch failure just drops the hint, and any LLM
+failure/empty/malformed response yields the domain-heuristic name and ``[]`` competitors --
 onboarding must always proceed to manual entry, never raise (PRD: white-hat, no fabricated claims --
-competitors are grounded suggestions the user edits, not asserted facts).
-
-Note on the name source: :class:`~gw_geo.ranking.fetch.FetchedPage` carries the page's *visible text*
-(``<head>``/``<script>`` are stripped by the crawler), so the JSON-LD / ``og:site_name`` / ``<title>``
-parsers below fire when the injected fetcher surfaces raw markup (as fakes do) and gracefully fall
-through to the domain heuristic on the real, visible-text-only fetch -- see ``_resolve_brand_name``.
+these are grounded suggestions the user edits, not asserted facts).
 """
 
 from __future__ import annotations
@@ -38,6 +41,9 @@ from gw_geo.ranking.fetch import PageFetcher
 # Up to ~6 competitor suggestions (ui-spec onboarding: a short, editable seed list, not a directory).
 _MAX_COMPETITORS = 6
 
+# Cap on the page-derived name hint fed into the prompt -- a bounded snippet, never the whole page.
+_HINT_MAX_CHARS = 400
+
 # schema.org `@type`s we read a brand `name` off, in priority order (Organization before WebSite).
 _ORG_TYPES = frozenset({"Organization"})
 _SITE_TYPES = frozenset({"WebSite", "Website"})
@@ -50,13 +56,19 @@ _TITLE_SEP_RE = re.compile(r"\s+[|–—·»:\-]\s+")
 _SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
-# --- structured-output contract for the competitor-suggestion tool call ----------------------
+# --- structured-output contract for the brand-suggestion tool call ---------------------------
 
 # Free-form-friendly object schema (same forced-tool-call pattern `content.generate` uses, which
-# Portkey maps to lenient provider tool-use -- see `PortkeyLLMClient`): a list of {name, domain?}.
-_COMPETITOR_SCHEMA: dict[str, Any] = {
+# Portkey maps to lenient provider tool-use -- see `PortkeyLLMClient`): the brand `name` plus a
+# list of competitor {name, domain?}. The same schema rides the local-Claude path via `--json-schema`.
+_BRAND_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "name": {
+            "type": "string",
+            "description": "The brand/company's proper name (as it writes it), derived from the "
+            "domain and refined by the page hint when one is given.",
+        },
         "competitors": {
             "type": "array",
             "description": "Real, well-known companies that compete with the brand in its market.",
@@ -71,15 +83,17 @@ _COMPETITOR_SCHEMA: dict[str, Any] = {
                 },
                 "required": ["name"],
             },
-        }
+        },
     },
-    "required": ["competitors"],
+    "required": ["name", "competitors"],
 }
 
-_COMPETITOR_SYSTEM = (
-    "You identify real, well-known competitor companies for a given brand. Return only plausible, "
-    "genuinely-existing competitors in the same market -- never invent or fabricate a company. "
-    "When unsure, return fewer rather than guessing. Respond only via the requested tool call."
+_BRAND_SYSTEM = (
+    "You identify the company/brand behind a website domain and its real, well-known competitors. "
+    "Derive the brand's proper name from the domain (using any page hint only to refine it), and "
+    "return only plausible, genuinely-existing competitors in the same market -- never invent or "
+    "fabricate a company. When unsure, return fewer rather than guessing. Respond only via the "
+    "requested tool call."
 )
 
 
@@ -213,27 +227,64 @@ def _name_from_domain(domain: str) -> str:
     return " ".join(word.capitalize() for word in words) if words else host
 
 
-def _resolve_brand_name(*, domain: str, fetcher: PageFetcher) -> str:
-    """Fetch the site (never raising) and parse its brand name; fall back to the domain heuristic."""
-    page = None
+def _text_snippet(text: str) -> str | None:
+    """A whitespace-collapsed, length-capped snippet of the page's visible text (or ``None``)."""
+    snippet = " ".join(text.split())[:_HINT_MAX_CHARS]
+    return snippet or None
+
+
+def _fetch_name_hint(*, domain: str, fetcher: PageFetcher) -> str | None:
+    """Fetch the site (never raising) and derive a brand-name *hint* for the LLM prompt.
+
+    Prefers a parsed ``<title>``/``og:site_name``/JSON-LD name (fires when the fetcher surfaces raw
+    markup, as fakes do); on the real, visible-text-only fetch that yields nothing, so it falls to a
+    bounded snippet of the visible text. ``None`` when the page can't be fetched or is empty -- the
+    LLM then derives the name from the domain alone.
+    """
     try:
         page = fetcher.fetch(normalize_url(domain))
     except Exception:
-        page = None  # a broken/blocked/timed-out fetch must never break onboarding
-    markup = page.text if page is not None else None
-    return _name_from_markup(markup) or _name_from_domain(domain)
+        return None  # a broken/blocked/timed-out fetch must never break onboarding
+    if page is None or not page.text:
+        return None
+    return _name_from_markup(page.text) or _text_snippet(page.text)
 
 
 # --- competitor suggestion (one structured LLM tool call; empty on any failure) --------------
 
 
-def _build_competitor_prompt(*, name: str, domain: str) -> str:
-    return (
-        f"Brand: {name} (website: {domain}).\n"
-        f"List up to {_MAX_COMPETITORS} real companies that directly compete with this brand in its "
-        "market. For each, give the company name and, if you know it, its primary website domain. "
-        "Only include real, plausible competitors; omit any you are unsure about."
+def _build_brand_prompt(*, domain: str, name_hint: str | None) -> str:
+    lines = [
+        f"Website domain: {domain}.",
+        "Identify the company/brand that operates this website, and up to "
+        f"{_MAX_COMPETITORS} real companies that directly compete with it in its market.",
+    ]
+    if name_hint:
+        lines.append(
+            "Hint read off the site's page (may be noisy boilerplate -- use only if it helps you "
+            f"name the brand): {name_hint!r}."
+        )
+    lines.append(
+        "Return the brand's proper name (as the company writes it -- derive it from the domain, "
+        "refined by the hint if useful), and for each competitor its name and, if you know it, its "
+        "primary website domain. Only include real, plausible competitors; omit any you are unsure "
+        "about."
     )
+    return "\n".join(lines)
+
+
+def _parse_name(result: Any) -> str | None:
+    """The trimmed brand ``name`` from the LLM tool-call result, or ``None`` if absent/blank/malformed.
+
+    The caller falls back to the domain heuristic on ``None`` -- so a missing name never breaks
+    onboarding.
+    """
+    if not isinstance(result, dict):
+        return None
+    name = result.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return None
 
 
 def _parse_competitors(result: Any, *, brand_name: str) -> list[str]:
@@ -272,31 +323,36 @@ def _parse_competitors(result: Any, *, brand_name: str) -> list[str]:
     return names
 
 
-def _suggest_competitors(*, name: str, domain: str, llm: LLMClient) -> list[str]:
-    """One structured tool-call to the LLM for competitor names; ``[]`` on any failure/empty."""
+def _call_brand_llm(
+    *, domain: str, name_hint: str | None, llm: LLMClient
+) -> dict[str, Any] | None:
+    """One structured tool-call for ``{name, competitors}``; ``None`` on any failure (never raises)."""
     try:
-        result = llm.complete(
-            system=_COMPETITOR_SYSTEM,
-            prompt=_build_competitor_prompt(name=name, domain=domain),
-            schema=_COMPETITOR_SCHEMA,
+        return llm.complete(
+            system=_BRAND_SYSTEM,
+            prompt=_build_brand_prompt(domain=domain, name_hint=name_hint),
+            schema=_BRAND_SCHEMA,
         )
     except Exception:
-        return []  # a failed/rate-limited/unconfigured LLM must never break onboarding
-    return _parse_competitors(result, brand_name=name)
+        return None  # a failed/rate-limited/unconfigured LLM must never break onboarding
 
 
 def suggest_brand_details(
     *, domain: str, fetcher: PageFetcher, llm: LLMClient
 ) -> BrandSuggestion:
-    """Propose a brand ``name`` (from its site) + ``competitors`` (via the LLM) for a bare ``domain``.
+    """Propose a brand ``name`` + ``competitors`` for a bare ``domain`` via one LLM tool-call.
 
-    Best-effort and total: a fetch failure degrades the name to the domain heuristic, and any LLM
-    failure yields no competitors -- so the caller (``POST /brands/suggest``) always returns a usable,
-    fully-editable suggestion and never surfaces a 5xx during onboarding.
+    The LLM derives the name from the domain (refined by a page-title/text hint when the fetch
+    surfaces one) and lists competitors. Best-effort and total: a fetch failure just drops the hint,
+    and any LLM failure/empty name degrades to the domain heuristic with no competitors -- so the
+    caller (``POST /brands/suggest``) always returns a usable, fully-editable suggestion and never
+    surfaces a 5xx during onboarding.
     """
     clean_domain = domain.strip()
-    name = _resolve_brand_name(domain=clean_domain, fetcher=fetcher)
-    competitors = _suggest_competitors(name=name, domain=clean_domain, llm=llm)
+    name_hint = _fetch_name_hint(domain=clean_domain, fetcher=fetcher)
+    result = _call_brand_llm(domain=clean_domain, name_hint=name_hint, llm=llm)
+    name = _parse_name(result) or _name_from_domain(clean_domain)
+    competitors = _parse_competitors(result, brand_name=name)
     return BrandSuggestion(name=name, domain=clean_domain, competitors=competitors)
 
 
