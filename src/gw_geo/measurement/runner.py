@@ -354,12 +354,9 @@ async def run_measurement(
                             result=result,
                             raw_ref=raw_ref,
                         )
-                        # Flush the ProbeRun before inserting rows that FK-reference it. Real
-                        # Postgres enforces the FK when the citation upsert's query triggers an
-                        # autoflush; the ORM models don't declare the relationship, so without this
-                        # the AnswerExtraction can be inserted before its ProbeRun exists (SQLite's
-                        # default FK-off hid this in the hermetic suite).
-                        session.flush()
+                        # ProbeRun now inserts before its FK children automatically: the ORM
+                        # declares the FK relationships (db.py), so autoflush on the citation
+                        # upsert's SELECT persists it in FK-correct (parent-before-child) order.
                         _persist_extraction(session, tenant_id=tenant_id, extraction=extraction)
                         _upsert_citations(
                             session,

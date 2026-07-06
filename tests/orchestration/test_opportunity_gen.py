@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session as SASession
 from sqlalchemy.pool import StaticPool
 
 from gw_geo.common.config import Settings
-from gw_geo.common.db import Base, Brand, Citation, Opportunity, Tenant, VisibilitySnapshot
+from gw_geo.common.db import Base, Brand, Citation, Opportunity, Prompt, Tenant, VisibilitySnapshot
 from gw_geo.orchestration import opportunity_gen
 from gw_geo.orchestration.opportunity_gen import (
     generate_and_persist_opportunities,
@@ -40,6 +40,8 @@ def engine() -> Engine:
 def _seed_brand(session: SASession) -> None:
     session.add(Tenant(id=TENANT, name=TENANT, sampling_budget_daily=100.0))
     session.add(Brand(id=BRAND, tenant_id=TENANT, name="Gushwork", domain="gushwork.ai"))
+    # FK parent for the Citations the source-mix tests seed (citation.prompt_id -> prompt.id).
+    session.add(Prompt(id="p1", tenant_id=TENANT, brand_id=BRAND, text="q"))
 
 
 def _snap(

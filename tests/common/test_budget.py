@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from gw_geo.common.budget import BudgetExceeded, CostGovernor
-from gw_geo.common.db import Base, ProbeRun, Tenant
+from gw_geo.common.db import Base, Brand, ProbeRun, Prompt, Tenant
 
 
 @pytest.fixture
@@ -30,6 +30,10 @@ def seeded_session() -> Iterator[Session]:
 
     session.add(Tenant(id="t1", name="Acme", sampling_budget_daily=1.0))
     session.add(Tenant(id="t2", name="Globex", sampling_budget_daily=5.0))
+    # ProbeRun.prompt_id -> prompt.id is a FK; seed the shared prompt (and its brand) that all
+    # four ProbeRun rows below reference, so they are insertable under FK enforcement.
+    session.add(Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com"))
+    session.add(Prompt(id="prompt1", tenant_id="t1", brand_id="b1", text="q"))
     session.add_all(
         [
             ProbeRun(

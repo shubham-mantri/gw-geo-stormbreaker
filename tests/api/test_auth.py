@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session as SASession
 
 from gw_geo.api import auth
 from gw_geo.common.config import Settings
-from gw_geo.common.db import AppUser, Base, Membership
+from gw_geo.common.db import AppUser, Base, Membership, Tenant
 
 
 def test_hash_roundtrip():
@@ -60,6 +60,7 @@ def _seeded_session() -> SASession:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     session = SASession(engine)
+    session.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
     session.add(
         AppUser(id="u1", email="a@x.com", password_hash=auth.hash_password("hunter2"))
     )

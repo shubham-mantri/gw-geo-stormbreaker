@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from gw_geo.billing.metering import UsageKind, record_usage
 from gw_geo.billing.pricing import AttributedResults, PricingPlan
 from gw_geo.billing.views import billing_summary
-from gw_geo.common.db import Base, DriftEvent, SeedingTask
+from gw_geo.common.db import Base, Brand, DriftEvent, SeedingTask, Tenant
 from gw_geo.orchestration.retrain import RetrainTrigger
 from gw_geo.seeding.channels import ChannelCatalog, seed_channels, seed_compliance_rules
 from gw_geo.seeding.compliance import ComplianceEngine, ComplianceError, PlacementProposal
@@ -55,7 +55,13 @@ class FakeAttribution:
 def _session() -> Session:
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
-    return Session(eng)
+    s = Session(eng)
+    # FK parents shared by the e2e flows: SeedingTask / UsageEvent reference tenant t1 + brand b1
+    # (FK-enforced now), so seed them before the pipeline code inserts those child rows.
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    s.commit()
+    return s
 
 
 def test_discovery_to_placement_happy_path():

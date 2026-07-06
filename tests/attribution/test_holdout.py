@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as SASession
 
 from gw_geo.attribution.holdout import HoldoutResult, _relative_lift_ci, measure_incrementality
-from gw_geo.common.db import Base, HoldoutCohort
+from gw_geo.common.db import Base, Brand, HoldoutCohort, Tenant
 from gw_geo.common.db import Lead as LeadRow
 from gw_geo.common.db import Session as SessionRow
 from gw_geo.common.db import TenantScopedSession
@@ -50,6 +50,8 @@ def _seed_cohort_traffic(
     **exclude** from both arms; the old definition (all non-holdout traffic) wrongly swept it into
     the optimized denominator and biased the causal lift.
     """
+    raw.add(Tenant(id="t1", name="Acme", sampling_budget_daily=100.0))
+    raw.add(Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com", competitors=[]))
     raw.add(
         HoldoutCohort(
             id=cohort_id,

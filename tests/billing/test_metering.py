@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from gw_geo.billing.metering import UsageKind, meter_period, record_usage
-from gw_geo.common.db import Base
+from gw_geo.common.db import Base, Brand, Tenant
 
 
 def _session() -> Session:
@@ -18,6 +18,9 @@ def _session() -> Session:
 
 def test_meter_sums_by_kind_within_period() -> None:
     s = _session()
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    s.commit()
     record_usage(
         s, tenant_id="t1", brand_id="b1", kind=UsageKind.PROBE, quantity=100, ts="2026-06-05"
     )
@@ -44,6 +47,8 @@ def test_meter_sums_by_kind_within_period() -> None:
 
 def test_meter_scopes_to_tenant() -> None:
     s = _session()
+    s.add(Tenant(id="t2", name="t", sampling_budget_daily=100.0))
+    s.commit()
     record_usage(
         s, tenant_id="t2", brand_id=None, kind=UsageKind.GENERATION, quantity=5, ts="2026-06-10"
     )

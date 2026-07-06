@@ -9,7 +9,11 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-def test_prompts_crud_scoped(app_client: TestClient, t1_token: str) -> None:
+def test_prompts_crud_scoped(
+    app_client: TestClient, t1_token: str, seeded_brands: None
+) -> None:
+    # seeded_brands seeds Tenant t1 + Brand b1 so the created Prompt's tenant_id/brand_id FKs
+    # resolve (FK enforcement is on in the suite; without the parents the POST would 500).
     c = app_client.post(
         "/brands/b1/prompts",
         json={"text": "best CRM for startups", "geo": "us"},

@@ -94,8 +94,10 @@ def test_snippet_matches_uispec(
 
 
 def test_integration_connect_matches_uispec(
-    app_client: TestClient, admin_token: str
+    app_client: TestClient, admin_token: str, seeded_brands: None
 ) -> None:
+    # seeded_brands seeds Tenant t1 so the created Integration's tenant_id FK resolves (FK
+    # enforcement is on in the suite; without the Tenant the POST would 500).
     # review fix #7: the one M2 *write* whose response the dashboard reads (`{status}`) is now
     # pinned to the ui-spec too. (Request-body + full types<->schema codegen deferred to M3 --
     # see schemas_uispec.INTEGRATION_STATUS_SCHEMA.)

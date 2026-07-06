@@ -11,7 +11,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from gw_geo.common.db import Base, Citation, FeatureModel
+from gw_geo.common.db import Base, Brand, Citation, FeatureModel, Prompt, Tenant
 from gw_geo.common.models import FeatureVector, SourceType
 from gw_geo.ranking.runner import run_ranking
 from tests.ranking.test_model import FakeBackend
@@ -20,7 +20,14 @@ from tests.ranking.test_model import FakeBackend
 def _session() -> Session:
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
-    return Session(eng)
+    s = Session(eng)
+    # FK parents: the seeded Citation (-> tenant, brand, prompt) and the FeatureModel run_ranking
+    # persists (-> tenant, brand).
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    s.add(Prompt(id="p1", tenant_id="t1", brand_id="b1", text="q"))
+    s.commit()
+    return s
 
 
 def _fv(structure: float) -> FeatureVector:

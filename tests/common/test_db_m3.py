@@ -9,17 +9,24 @@ from gw_geo.common.db import (
     Base,
     BanditArm,
     BanditReward,
+    Brand,
     ContentAsset,
     ContentGuardrailReport,
     FeatureModel,
     Opportunity,
+    Tenant,
 )
 
 
 def _session() -> Session:
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
-    return Session(eng)
+    s = Session(eng)
+    # Every roundtrip below seeds rows under tenant t1 / brand b1; seed those FK parents once.
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    s.commit()
+    return s
 
 
 def test_content_asset_roundtrip() -> None:

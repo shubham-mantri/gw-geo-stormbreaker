@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as SASession
 
 from gw_geo.attribution.linkage import link_citations
-from gw_geo.common.db import AttributionLink, Base, Brand, Citation
+from gw_geo.common.db import AttributionLink, Base, Brand, Citation, Prompt
 from gw_geo.common.db import Session as SessionRow
 from gw_geo.common.db import Tenant, TenantScopedSession
 
@@ -27,6 +27,9 @@ def _seeded_raw() -> SASession:
     raw = SASession(engine)
     raw.add(Tenant(id="t1", name="Acme", sampling_budget_daily=100.0))
     raw.add(Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com", competitors=[]))
+    # Citations FK-reference their prompt (citation.prompt_id -> prompt.id); every _seed_citation
+    # here uses prompt_id="p1", so seed that prompt once.
+    raw.add(Prompt(id="p1", tenant_id="t1", brand_id="b1", text="best CRM"))
     raw.commit()
     return raw
 

@@ -10,7 +10,7 @@ protocol (T05) -- no live database, no network.
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from gw_geo.common.db import Base, SeedingTask
+from gw_geo.common.db import Base, Brand, SeedingTask, Tenant
 from gw_geo.seeding.corroboration import corroboration_count, update_corroboration
 
 
@@ -34,6 +34,8 @@ def test_update_writes_count_to_task_and_advances_placed_to_corroborated():
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
     s = Session(eng)
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
     s.add(SeedingTask(id="st1", tenant_id="t1", brand_id="b1", channel="reddit",
         status="placed", compliance_status="passed", corroboration_count=0))
     s.commit()
@@ -50,6 +52,8 @@ def test_update_does_not_change_status_of_non_placed_task():
     eng = create_engine("sqlite://")
     Base.metadata.create_all(eng)
     s = Session(eng)
+    s.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    s.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
     s.add(SeedingTask(id="st2", tenant_id="t1", brand_id="b1", channel="reddit",
         status="ready_for_human", compliance_status="passed", corroboration_count=0))
     s.commit()

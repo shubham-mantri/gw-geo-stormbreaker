@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from gw_geo.common.db import Base, Citation, VisibilitySnapshot
+from gw_geo.common.db import Base, Brand, Citation, Prompt, Tenant, VisibilitySnapshot
 from gw_geo.measurement.feed import (
     citation_source_mix,
     share_of_voice_trend,
@@ -23,6 +23,12 @@ def _seed() -> Session:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     session = Session(engine)
+    # FK parents for the seeded snapshots/citations (-> tenant, brand; citation -> prompt too).
+    session.add(Tenant(id="t1", name="t", sampling_budget_daily=100.0))
+    session.add(Tenant(id="t2", name="t", sampling_budget_daily=100.0))
+    session.add(Brand(id="b1", tenant_id="t1", name="b", domain="b.com"))
+    session.add(Brand(id="bX", tenant_id="t2", name="b", domain="b.com"))
+    session.add(Prompt(id="p1", tenant_id="t1", brand_id="b1", text="q"))
     for date, mention_rate in [("2026-07-01", 0.4), ("2026-07-02", 0.6)]:
         session.add(
             VisibilitySnapshot(

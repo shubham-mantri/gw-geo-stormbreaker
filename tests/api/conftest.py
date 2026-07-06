@@ -255,6 +255,9 @@ def seeded_citations(engine: Engine) -> None:
         session.add(
             Brand(id="b1", tenant_id="t1", name="Acme", domain="acme.com", competitors=["Beta"])
         )
+        # Citations FK-reference their prompt (citation.prompt_id -> prompt.id); seed it so both
+        # rows below (prompt_id="p1") are insertable once FK enforcement is on.
+        session.add(Prompt(id="p1", tenant_id="t1", brand_id="b1", text="best CRM for SaaS"))
         session.add(
             Citation(
                 id="c-reddit",
