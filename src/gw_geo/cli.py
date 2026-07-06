@@ -3,6 +3,7 @@
     python -m gw_geo.cli measure --brand <id> --engines perplexity,openai --n 8 [--geo us]
     python -m gw_geo.cli rank --brand <id> --engines perplexity,openai --input ranking_input.json
     python -m gw_geo.cli schedule [--brand <id> --tenant <id>] --engines perplexity --interval 24h
+    python -m gw_geo.cli opportunities --brand <id> [--tenant <id>]
 
 `measure` wires real dependencies via `gw_geo.common.wiring.build_runtime` and drives the same
 `gw_geo.measurement.runner.run_measurement` pipeline that the Lambda handler
@@ -10,11 +11,14 @@
 `build_ranking_inputs` (this module) and drives `gw_geo.ranking.runner.run_ranking` (M3-T20).
 `schedule` is a pure local process (an `asyncio.sleep` loop -- NO Lambda/EventBridge) that
 re-runs `gw_geo.measurement.trigger.run_measurement_job` for one brand, one tenant's brands, or
-every brand, every `--interval`.
+every brand, every `--interval`. `opportunities` (re)generates a brand's ranked opportunity queue
+from its live visibility data via `gw_geo.orchestration.opportunity_gen.run_opportunity_refresh_job`
+-- the same local job the `POST /brands/{id}/opportunities/refresh` endpoint schedules.
 
 Every pipeline entry point (`build_runtime`, `run_measurement`, `run_measurement_job`,
-`build_ranking_inputs`, `run_ranking`) is imported by name into this module (rather than
-referenced through its owning module) so tests can patch it as `gw_geo.cli.<name>`.
+`build_ranking_inputs`, `run_ranking`, `run_opportunity_refresh_job`) is imported by name into this
+module (rather than referenced through its owning module) so tests can patch it as
+`gw_geo.cli.<name>`.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from gw_geo.common.models import FeatureVector, SourceType
 from gw_geo.common.wiring import build_runtime, configured_engine_names
 from gw_geo.measurement.runner import run_measurement
 from gw_geo.measurement.trigger import run_measurement_job
+from gw_geo.orchestration.opportunity_gen import run_opportunity_refresh_job
 from gw_geo.ranking.model import make_backend
 from gw_geo.ranking.runner import run_ranking
 
@@ -152,6 +157,17 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run a single cycle then exit (rather than looping forever)",
     )
+
+    opportunities = subparsers.add_parser(
+        "opportunities",
+        help="Generate + persist a brand's ranked opportunity queue from live visibility data",
+    )
+    opportunities.add_argument(
+        "--brand", required=True, help="Brand id to (re)generate opportunities for"
+    )
+    opportunities.add_argument(
+        "--tenant", default="default", help="Tenant id that owns the brand (default: %(default)s)"
+    )
     return parser
 
 
@@ -168,6 +184,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_rank(args)
     if args.command == "schedule":
         return _run_schedule(args)
+    if args.command == "opportunities":
+        return _run_opportunities(args)
     return 1
 
 
@@ -366,6 +384,18 @@ def _run_schedule(args: argparse.Namespace) -> int:
     """Run the local measurement scheduler loop (pure local process; no Lambda/EventBridge)."""
     settings = get_settings()
     asyncio.run(_schedule_loop(settings, args))
+    return 0
+
+
+def _run_opportunities(args: argparse.Namespace) -> int:
+    """(Re)generate a brand's ranked opportunity queue from its live visibility data, locally.
+
+    Delegates to the same `run_opportunity_refresh_job` unit the API endpoint schedules (which owns
+    its own DB session), so the CLI and endpoint never diverge. Prints the generated count as JSON
+    and returns the process exit code (`0` on success).
+    """
+    count = run_opportunity_refresh_job(tenant_id=args.tenant, brand_id=args.brand)
+    print(json.dumps({"brand_id": args.brand, "opportunities": count}, indent=2))
     return 0
 
 

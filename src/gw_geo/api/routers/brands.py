@@ -38,6 +38,7 @@ from gw_geo.api.schemas import (
     BrandOut,
     MeasureAccepted,
     MeasureTriggerRequest,
+    OpportunityRefreshAccepted,
     OverviewOut,
     OverviewTrendPoint,
 )
@@ -47,6 +48,7 @@ from gw_geo.common.db import Brand, TenantScopedSession
 from gw_geo.common.wiring import configured_engine_names
 from gw_geo.measurement import feed
 from gw_geo.measurement.trigger import run_measurement_job
+from gw_geo.orchestration.opportunity_gen import run_opportunity_refresh_job
 
 router = APIRouter(tags=["brands"])
 
@@ -225,3 +227,33 @@ def trigger_measurement(
     return MeasureAccepted(
         status="accepted", brand_id=brand_id, engines=engines, n_samples=n_samples
     )
+
+
+@router.post(
+    "/brands/{brand_id}/opportunities/refresh",
+    status_code=202,
+    response_model=OpportunityRefreshAccepted,
+)
+def refresh_opportunities(
+    brand_id: str,
+    background_tasks: BackgroundTasks,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+    scoped: Annotated[TenantScopedSession, Depends(scoped_session)],
+) -> OpportunityRefreshAccepted:
+    """``POST /brands/{brand_id}/opportunities/refresh`` (W3) -- (re)generate the brand's ranked
+    opportunity queue from its live visibility data.
+
+    Requires ``role >= editor`` (a ``viewer`` -> **403**) and brand ownership under the caller's
+    tenant (an unowned/unknown brand -> **404**, never a tenant leak -- same collapse as
+    ``get_overview``/``trigger_measurement``). The ranking + persist run is **scheduled onto a
+    background task**, never executed inline: ``run_opportunity_refresh_job`` opens its own session,
+    ranks the brand's snapshot/citation gaps via ``orchestration.opportunities.build_opportunities``,
+    and idempotently refreshes the open queue -- so the request returns **202** immediately and the
+    caller then reads the fresh queue from ``GET /brands/{id}/opportunities``. ``tenant_id`` is taken
+    from the token (``principal``), never the client.
+    """
+    _ensure_brand_owned(scoped, brand_id)
+    background_tasks.add_task(
+        run_opportunity_refresh_job, tenant_id=principal.tenant_id, brand_id=brand_id
+    )
+    return OpportunityRefreshAccepted(status="accepted", brand_id=brand_id)

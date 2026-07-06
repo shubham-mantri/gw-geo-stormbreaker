@@ -127,3 +127,50 @@ def test_measure_unknown_brand_404(
         )
     assert r.status_code == 404
     job.assert_not_called()
+
+
+# --- POST /brands/{id}/opportunities/refresh (W3 opportunity-generation trigger) -------------
+
+
+def test_refresh_opportunities_enqueues_job(
+    app_client: TestClient, editor_token: str, seeded_brands: None
+) -> None:
+    # The TestClient runs the enqueued BackgroundTask before returning, so a patched
+    # run_opportunity_refresh_job records that it was scheduled -- with no live ranking/DB work.
+    with patch("gw_geo.api.routers.brands.run_opportunity_refresh_job") as job:
+        r = app_client.post(
+            "/brands/b1/opportunities/refresh",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+    assert r.status_code == 202
+    body = r.json()
+    assert body == {"status": "accepted", "brand_id": "b1"}
+    job.assert_called_once()
+    kwargs = job.call_args.kwargs
+    assert kwargs["tenant_id"] == "t1"  # from the token, never the client
+    assert kwargs["brand_id"] == "b1"
+
+
+def test_refresh_opportunities_requires_editor(
+    app_client: TestClient, viewer_token: str, seeded_brands: None
+) -> None:
+    with patch("gw_geo.api.routers.brands.run_opportunity_refresh_job") as job:
+        r = app_client.post(
+            "/brands/b1/opportunities/refresh",
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+    assert r.status_code == 403  # RBAC gate (ui-spec §5): viewer cannot trigger generation
+    job.assert_not_called()
+
+
+def test_refresh_opportunities_foreign_brand_404(
+    app_client: TestClient, t1_token: str, seeded_brands: None
+) -> None:
+    # t1 requesting b2 (owned by t2): collapses to 404, never confirming b2 exists.
+    with patch("gw_geo.api.routers.brands.run_opportunity_refresh_job") as job:
+        r = app_client.post(
+            "/brands/b2/opportunities/refresh",
+            headers={"Authorization": f"Bearer {t1_token}"},
+        )
+    assert r.status_code == 404
+    job.assert_not_called()
