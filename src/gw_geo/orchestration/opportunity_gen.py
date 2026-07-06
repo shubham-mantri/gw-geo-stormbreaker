@@ -9,10 +9,12 @@ ranker before. :func:`generate_and_persist_opportunities` loads the brand's `Vis
 rows + citation source mix from the DB, ranks the gaps, and writes the result -- so
 ``GET /brands/{id}/opportunities`` finally returns real recommendations.
 
-Scope (W3): **absence + sentiment** opportunities are derived from snapshots alone. **source**
-opportunities need ranking ``RankingReport``s, which require the candidate-sourcing crawler that is
-not built yet, so ``reports=[]`` is passed here (no source opportunities this wave). The citation
-source mix is still computed and passed so the worker is correct the moment reports are wired in.
+Scope: **absence + sentiment** opportunities are derived from snapshots alone. **source**
+opportunities need ranking ``RankingReport``s from the candidate-sourcing crawler (M5,
+``orchestration.ranking_gen.generate_ranking_reports``): :func:`generate_and_persist_opportunities`
+takes an optional ``reports`` argument (default ``[]``, preserving the snapshot-only behavior), and
+:func:`run_execution_refresh_job` is the full "rank then generate" job that produces those reports
+and threads them in, so ``source`` opportunities are emitted alongside absence/sentiment ones.
 
 Idempotent refresh: re-running replaces the brand's **open** queue (delete the prior ``status=open``
 rows, insert the freshly-ranked set), leaving ``acted``/``dismissed`` rows untouched -- so a refresh
@@ -37,7 +39,9 @@ from sqlalchemy.orm import Session as SASession
 
 from gw_geo.common import db, models
 from gw_geo.common.config import get_settings
+from gw_geo.common.models import RankingReport
 from gw_geo.orchestration.opportunities import build_opportunities
+from gw_geo.orchestration.ranking_gen import build_ranking_runtime, generate_ranking_reports
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +71,26 @@ def _brand_source_mix(
 
 
 def generate_and_persist_opportunities(
-    *, session: SASession, tenant_id: str, brand_id: str
+    *,
+    session: SASession,
+    tenant_id: str,
+    brand_id: str,
+    reports: list[RankingReport] | None = None,
 ) -> int:
     """Rank `brand_id`'s live visibility gaps and persist them as `Opportunity` rows; return count.
 
     Loads the brand + its `VisibilitySnapshot` rows and citation source mix, runs
-    :func:`build_opportunities` (``reports=[]`` -- source opportunities are out of scope this wave),
-    then **idempotently refreshes** the open queue: deletes the brand's prior ``status=open``
-    opportunities and inserts the freshly-ranked set (``status=open``), preserving any
-    ``acted``/``dismissed`` history. A missing or cross-tenant brand is a no-op returning ``0``.
+    :func:`build_opportunities`, then **idempotently refreshes** the open queue: deletes the brand's
+    prior ``status=open`` opportunities and inserts the freshly-ranked set (``status=open``),
+    preserving any ``acted``/``dismissed`` history. A missing or cross-tenant brand is a no-op
+    returning ``0``.
+
+    ``reports`` are per-engine `RankingReport`s from the M5 candidate-sourcing crawler
+    (``ranking_gen.generate_ranking_reports``); their channel recommendations become **source**
+    opportunities (a channel an engine trusts that the brand barely seeds). It defaults to ``None``
+    -> ``[]``, so the snapshot-only callers (``run_opportunity_refresh_job`` and every existing
+    test) keep emitting only absence/sentiment opportunities unchanged;
+    :func:`run_execution_refresh_job` is the caller that supplies real reports.
     """
     brand_row = session.get(db.Brand, brand_id)
     if brand_row is None or brand_row.tenant_id != tenant_id:
@@ -126,7 +141,7 @@ def generate_and_persist_opportunities(
     opportunities = build_opportunities(
         brand=brand,
         snapshots=snapshots,
-        reports=[],  # W3: source opportunities need the candidate-sourcing crawler (out of scope)
+        reports=reports or [],  # M5: channel recs from ranking -> source opportunities
         source_mix=source_mix,
     )
 
@@ -189,6 +204,60 @@ def run_opportunity_refresh_job(*, tenant_id: str, brand_id: str) -> int:
         "opportunity refresh job done tenant_id=%s brand_id=%s count=%d",
         tenant_id,
         brand_id,
+        count,
+    )
+    return count
+
+
+def run_execution_refresh_job(*, tenant_id: str, brand_id: str, engines: list[str]) -> int:
+    """Local, in-process **full execution** refresh: rank from the citation pool, then persist opps.
+
+    The composed job the M5 crawler unlocks: it runs the candidate-sourcing ranker
+    (:func:`ranking_gen.generate_ranking_reports`, which trains + persists the per-engine
+    `FeatureModel`s) and threads the resulting `RankingReport`s into
+    :func:`generate_and_persist_opportunities`, so the refreshed open queue now includes **source**
+    opportunities (channels an engine trusts that the brand barely seeds) on top of the
+    absence/sentiment ones snapshots alone yield.
+
+    Owns and always closes its own session (built from ``settings.database_url``) and wires the real
+    ranking runtime via :func:`ranking_gen.build_ranking_runtime` (offline `LocalHashEmbedder` when
+    no embedding key is configured) -- no AWS/Lambda/cloud anywhere, exactly like
+    :func:`run_opportunity_refresh_job`. Ranking + persistence share the one session, so the
+    freshly-persisted models and the opportunity refresh commit against the same connection. Returns
+    the number of opportunities generated. ``get_settings`` is imported by name so tests can patch
+    ``gw_geo.orchestration.opportunity_gen.get_settings``; ``generate_ranking_reports`` likewise, to
+    keep the job hermetic.
+    """
+    settings = get_settings()
+    fetcher, embedder, backend_factory = build_ranking_runtime(settings)
+
+    engine = create_engine(settings.database_url)
+    session = Session(engine)
+    try:
+        reports = generate_ranking_reports(
+            session=session,
+            tenant_id=tenant_id,
+            brand_id=brand_id,
+            engines=engines,
+            fetcher=fetcher,
+            embedder=embedder,
+            backend_factory=backend_factory,
+            model_type=settings.ranking_model_type,
+        )
+        count = generate_and_persist_opportunities(
+            session=session,
+            tenant_id=tenant_id,
+            brand_id=brand_id,
+            reports=list(reports.values()),
+        )
+    finally:
+        session.close()
+
+    logger.info(
+        "execution refresh job done tenant_id=%s brand_id=%s engines=%d opportunities=%d",
+        tenant_id,
+        brand_id,
+        len(reports),
         count,
     )
     return count

@@ -16,9 +16,11 @@ from sqlalchemy.pool import StaticPool
 
 from gw_geo.common.config import Settings
 from gw_geo.common.db import Base, Brand, Citation, Opportunity, Prompt, Tenant, VisibilitySnapshot
+from gw_geo.common.models import ChannelRecommendation, RankingReport, SourceType
 from gw_geo.orchestration import opportunity_gen
 from gw_geo.orchestration.opportunity_gen import (
     generate_and_persist_opportunities,
+    run_execution_refresh_job,
     run_opportunity_refresh_job,
 )
 from gw_geo.orchestration.opportunity_service import DbOpportunityService
@@ -284,3 +286,104 @@ def test_run_job_opens_session_and_persists(tmp_path, monkeypatch: pytest.Monkey
     assert count == 1
     with SASession(eng) as session:
         assert session.query(Opportunity).count() == 1
+
+
+# --- M5: threading ranking reports into `source` opportunities -------------------------------
+
+
+def _reddit_report(engine: str = "perplexity") -> RankingReport:
+    """A ranking report whose top channel is reddit -- the seed for a `source` opportunity."""
+    return RankingReport(
+        engine=engine,
+        channel_recommendations=[
+            ChannelRecommendation(
+                engine=engine,
+                channel=SourceType.REDDIT,
+                rationale=f"{engine} pulls ~70% of its citations from reddit here.",
+                est_impact=0.7,
+            )
+        ],
+    )
+
+
+def test_reports_thread_into_source_opportunities(engine: Engine) -> None:
+    # A healthy engine (no absence/sentiment gap) whose ranking report says it leans on reddit,
+    # while the brand's own citation mix is entirely 'other' (0% reddit): a source gap.
+    with SASession(engine) as session:
+        _seed_brand(session)
+        session.add(_snap("perplexity", 0.6, sentiment=0.9, n=10))
+        session.add(
+            Citation(id="c1", tenant_id=TENANT, brand_id=BRAND, url="https://x.com/a",
+                     domain="x.com", source_type="other", engine="perplexity", prompt_id="p1",
+                     seen_count=3)
+        )
+        session.commit()
+
+    with SASession(engine) as session:
+        count = generate_and_persist_opportunities(
+            session=session, tenant_id=TENANT, brand_id=BRAND, reports=[_reddit_report()]
+        )
+    assert count == 1  # only the source opportunity (the snapshot is healthy)
+
+    with SASession(engine) as session:
+        rows = session.query(Opportunity).all()
+    assert len(rows) == 1
+    opp = rows[0]
+    assert opp.source_gap == "source" and opp.engine == "perplexity"
+    # est_impact = weight(n=10 -> 1.0) * gap(0.7 * (1 - 0.0 reddit presence)) = 0.7
+    assert opp.est_impact == pytest.approx(0.7)
+
+
+def test_default_reports_emits_no_source_opportunity(engine: Engine) -> None:
+    # Backwards-compat: omitting reports (the default) reproduces the snapshot-only behavior --
+    # a healthy engine yields nothing even though a report WOULD have produced a source gap.
+    with SASession(engine) as session:
+        _seed_brand(session)
+        session.add(_snap("perplexity", 0.6, sentiment=0.9, n=10))
+        session.commit()
+
+    with SASession(engine) as session:
+        count = generate_and_persist_opportunities(
+            session=session, tenant_id=TENANT, brand_id=BRAND
+        )
+    assert count == 0
+
+
+def test_run_execution_refresh_job_ranks_then_persists(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # run_execution_refresh_job opens its own session, runs the (patched) ranker, and threads the
+    # reports into opportunity generation -- emitting a source opportunity. generate_ranking_reports
+    # is patched so no live fetch / embedding / scikit-learn runs (hermetic).
+    db_path = tmp_path / "exec.db"
+    url = f"sqlite:///{db_path}"
+    eng = create_engine(url)
+    Base.metadata.create_all(eng)
+    with SASession(eng) as session:
+        _seed_brand(session)
+        session.add(_snap("perplexity", 0.6, sentiment=0.9, n=10))  # healthy: no absence/sentiment
+        session.add(
+            Citation(id="c1", tenant_id=TENANT, brand_id=BRAND, url="https://x.com/a",
+                     domain="x.com", source_type="other", engine="perplexity", prompt_id="p1",
+                     seen_count=3)
+        )
+        session.commit()
+
+    monkeypatch.setattr(opportunity_gen, "get_settings", lambda: Settings(database_url=url))
+    captured: dict = {}
+
+    def _spy(**kwargs):
+        captured.update(kwargs)
+        return {"perplexity": _reddit_report()}
+
+    monkeypatch.setattr(opportunity_gen, "generate_ranking_reports", _spy)
+
+    count = run_execution_refresh_job(tenant_id=TENANT, brand_id=BRAND, engines=["perplexity"])
+    assert count == 1
+    # the ranker ran on the job's own session, for the requested engines
+    assert isinstance(captured["session"], SASession)
+    assert captured["engines"] == ["perplexity"]
+
+    with SASession(eng) as session:
+        rows = session.query(Opportunity).all()
+    assert len(rows) == 1 and rows[0].source_gap == "source"

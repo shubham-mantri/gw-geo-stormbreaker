@@ -2,6 +2,7 @@
 
     python -m gw_geo.cli measure --brand <id> --engines perplexity,openai --n 8 [--geo us]
     python -m gw_geo.cli rank --brand <id> --engines perplexity,openai --input ranking_input.json
+    python -m gw_geo.cli rank-live --brand <id> --engines perplexity,openai
     python -m gw_geo.cli schedule [--brand <id> --tenant <id>] --engines perplexity --interval 24h
     python -m gw_geo.cli opportunities --brand <id> [--tenant <id>]
     python -m gw_geo.cli reconcile --brand <id> [--tenant <id>] [--since YYYY-MM-DD --until ...]
@@ -10,7 +11,10 @@
 `gw_geo.measurement.runner.run_measurement` pipeline that the Lambda handler
 (`gw_geo.handlers.run_measurement`) invokes. `rank` wires real dependencies via
 `build_ranking_inputs` (this module) and drives `gw_geo.ranking.runner.run_ranking` (M3-T20).
-`schedule` is a pure local process (an `asyncio.sleep` loop -- NO Lambda/EventBridge) that
+`rank-live` (M5) sources candidates from the citation pool instead of an operator JSON file --
+crawling the cited URLs for content + features -- via
+`gw_geo.orchestration.ranking_gen.run_ranking_refresh_job`, the same local job the
+`POST /brands/{id}/ranking/refresh` endpoint schedules. `schedule` is a pure local process (an `asyncio.sleep` loop -- NO Lambda/EventBridge) that
 re-runs `gw_geo.measurement.trigger.run_measurement_job` for one brand, one tenant's brands, or
 every brand, every `--interval`. `opportunities` (re)generates a brand's ranked opportunity queue
 from its live visibility data via `gw_geo.orchestration.opportunity_gen.run_opportunity_refresh_job`
@@ -21,7 +25,7 @@ and persists the `attribution_link` rows the pipeline reads, via
 `POST /brands/{id}/attribution/reconcile` endpoint schedules.
 
 Every pipeline entry point (`build_runtime`, `run_measurement`, `run_measurement_job`,
-`build_ranking_inputs`, `run_ranking`, `run_opportunity_refresh_job`,
+`build_ranking_inputs`, `run_ranking`, `run_ranking_refresh_job`, `run_opportunity_refresh_job`,
 `run_attribution_reconcile_job`) is imported by name into this module (rather than referenced
 through its owning module) so tests can patch it as `gw_geo.cli.<name>`.
 """
@@ -47,6 +51,7 @@ from gw_geo.common.wiring import build_runtime, configured_engine_names
 from gw_geo.measurement.runner import run_measurement
 from gw_geo.measurement.trigger import run_measurement_job
 from gw_geo.orchestration.opportunity_gen import run_opportunity_refresh_job
+from gw_geo.orchestration.ranking_gen import run_ranking_refresh_job
 from gw_geo.ranking.model import make_backend
 from gw_geo.ranking.runner import run_ranking
 
@@ -117,6 +122,23 @@ def _build_parser() -> argparse.ArgumentParser:
             "aggregation) -- this command trains and persists the ranking model from them; it "
             "does not itself crawl content or call an embedding model."
         ),
+    )
+
+    rank_live = subparsers.add_parser(
+        "rank-live",
+        help="Source ranking candidates from the citation pool (crawl cited URLs), train "
+        "per-engine models, and emit recommendation reports -- no operator JSON needed",
+    )
+    rank_live.add_argument("--brand", required=True, help="Brand id to rank")
+    rank_live.add_argument(
+        "--tenant", default="default", help="Tenant id that owns the brand (default: %(default)s)"
+    )
+    rank_live.add_argument(
+        "--engines",
+        required=True,
+        help="Comma-separated engine names to rank, e.g. perplexity,openai. NOTE: negatives are "
+        "sourced cross-engine (a URL another engine cited but this one didn't), so measure >=2 "
+        "engines -- a single engine yields all-positive, untrainable labels",
     )
 
     schedule = subparsers.add_parser(
@@ -210,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_measure(args)
     if args.command == "rank":
         return _run_rank(args)
+    if args.command == "rank-live":
+        return _run_rank_live(args)
     if args.command == "schedule":
         return _run_schedule(args)
     if args.command == "opportunities":
@@ -334,6 +358,22 @@ def _run_rank(args: argparse.Namespace) -> int:
     finally:
         session.close()
 
+    print(json.dumps({e: r.model_dump(mode="json") for e, r in reports.items()}, indent=2))
+    return 0
+
+
+def _run_rank_live(args: argparse.Namespace) -> int:
+    """Source candidates from the citation pool, train per-engine models, and print the reports.
+
+    Delegates to the same `run_ranking_refresh_job` unit the `POST /brands/{id}/ranking/refresh`
+    endpoint schedules (which owns its own DB session and wires the live crawler + config-selected
+    embedder + model backend), so the CLI and endpoint never diverge. Prints the per-engine
+    `RankingReport`s as JSON to stdout and returns the process exit code (`0` on success).
+    """
+    engines: list[str] = [e.strip() for e in args.engines.split(",") if e.strip()]
+    reports = run_ranking_refresh_job(
+        tenant_id=args.tenant, brand_id=args.brand, engines=engines
+    )
     print(json.dumps({e: r.model_dump(mode="json") for e, r in reports.items()}, indent=2))
     return 0
 

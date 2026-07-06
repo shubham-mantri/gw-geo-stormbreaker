@@ -399,3 +399,32 @@ class OpportunityRefreshAccepted(BaseModel):
 
     status: str
     brand_id: str
+
+
+class RankingRefreshRequest(BaseModel):
+    """``POST /brands/{id}/ranking/refresh`` body (M5) -- optional engine override.
+
+    ``engines`` defaults to ``None`` so the endpoint can be called with an empty body (or none), in
+    which case it resolves to every API-keyed engine the runtime has configured. NOTE: ranking
+    negatives are sourced cross-engine (a URL another engine cited but this one didn't), so >=2
+    engines should be measured for the per-engine models to train (see ``ranking.sourcing``).
+    ``tenant_id`` is **never** in the body -- it is derived from the bearer token (server-enforced
+    scope).
+    """
+
+    engines: list[str] | None = None
+
+
+class RankingRefreshAccepted(BaseModel):
+    """``POST /brands/{id}/ranking/refresh`` **202** response (M5) -- acknowledges that the
+    candidate-sourcing ranking run was scheduled onto a background task.
+
+    Like :class:`MeasureAccepted`/:class:`OpportunityRefreshAccepted`, this is an acknowledgement,
+    not a result: the crawl (cited URLs) + per-engine train run happens asynchronously (never inline
+    in the request), so the caller gets ``brand_id`` + the resolved ``engines`` back and then reads
+    the fresh recommendations once the job completes.
+    """
+
+    status: str
+    brand_id: str
+    engines: list[str]
