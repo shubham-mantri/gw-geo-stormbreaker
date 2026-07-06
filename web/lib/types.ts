@@ -11,6 +11,32 @@ export type Brand = {
 
 export type BrandCreated = { id: string };
 
+// ── Measurement trigger (W2) ──────────────────────────────────────────────────
+/**
+ * `POST /brands/{id}/measure` body — all optional run overrides (mirrors the
+ * backend `MeasureTriggerRequest`). An empty body `{}` means "use server
+ * defaults": every API-keyed engine, the default geos, and the default sample
+ * size. `tenant_id` is NEVER in the body — it is derived from the bearer token.
+ */
+export type MeasureRequest = {
+  engines?: string[];
+  geos?: string[];
+  n_samples?: number;
+  date?: string;
+};
+
+/**
+ * `POST /brands/{id}/measure` → **202** acknowledgement (mirrors `MeasureAccepted`).
+ * The run itself is async on the backend, so this only echoes what was scheduled
+ * (the resolved `engines` + `n_samples`), not any result.
+ */
+export type MeasureAccepted = {
+  status: string;
+  brand_id: string;
+  engines: string[];
+  n_samples: number;
+};
+
 // ── Overview (3.1) ──────────────────────────────────────────────────────────
 export type OverviewTrendPoint = {
   date: string;

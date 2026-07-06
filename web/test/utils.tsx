@@ -28,6 +28,7 @@ import type {
   Alert,
   Brand,
   ContentGenerateResponse,
+  MeasureAccepted,
   Opportunity,
   Overview,
   Pipeline,
@@ -54,6 +55,8 @@ export type MockApiOverrides = {
   opportunities?: Opportunity[];
   /** Canned `POST /content/generate` result (Content screen). */
   content?: ContentGenerateResponse;
+  /** Canned `POST /brands/{id}/measure` 202 acknowledgement (Run-measurement button). */
+  measure?: MeasureAccepted;
 };
 
 const DEFAULT_BRANDS: Brand[] = [
@@ -100,6 +103,12 @@ const DEFAULTS: Required<MockApiOverrides> = {
     },
     guardrails: { claims_ok: true, originality_ok: true },
   },
+  measure: {
+    status: "accepted",
+    brand_id: "b1",
+    engines: ["perplexity", "openai"],
+    n_samples: 8,
+  },
 };
 
 /**
@@ -127,6 +136,7 @@ export function mockApi(overrides: MockApiOverrides = {}): ApiClient {
     publishContent: () =>
       Promise.resolve({ status: "published", published_url: "https://hosted.gwgeo.io/p/c1" }),
     createBrand: () => Promise.resolve({ id: "new-brand" }),
+    measureBrand: (brandId) => Promise.resolve({ ...data.measure, brand_id: brandId }),
     savePrompts: (_brandId, prompts) => Promise.resolve(prompts),
     connectIntegration: () => Promise.resolve({ status: "connected" }),
     leadCaptureSnippet: () => Promise.resolve(data.snippet),

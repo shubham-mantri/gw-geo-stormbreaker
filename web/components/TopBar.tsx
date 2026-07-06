@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut } from "lucide-react";
+import { LogOut, Plus } from "lucide-react";
 
 import { apiClient } from "@/lib/api";
 import { getToken, logout } from "@/lib/auth";
@@ -78,6 +78,18 @@ export function TopBar() {
           ))}
         </SelectContent>
       </Select>
+
+      {/* A separate control (not a Select option) to onboard a new brand — routes
+          to the existing /onboarding wizard. */}
+      <Button
+        variant="outline"
+        size="icon"
+        aria-label="Add brand"
+        title="Add brand"
+        onClick={() => router.push("/onboarding")}
+      >
+        <Plus className="h-4 w-4" />
+      </Button>
 
       <Select value={range} onValueChange={setRange}>
         <SelectTrigger className="w-[160px]" aria-label="Date range">

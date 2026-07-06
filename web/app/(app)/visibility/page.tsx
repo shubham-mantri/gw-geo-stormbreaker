@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
 import { apiClient } from "@/lib/api";
-import { getToken } from "@/lib/auth";
+import type { Role } from "@/lib/auth";
+import { getRole, getToken } from "@/lib/auth";
 import { ALL_ENGINES, useFilters } from "@/lib/filters";
 import { EngineTable } from "@/components/EngineTable";
 import { PromptDrawer } from "@/components/PromptDrawer";
+import { RunMeasurementButton } from "@/components/RunMeasurementButton";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -33,7 +35,13 @@ function VisibilitySkeleton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({
+  brandId,
+  role,
+}: {
+  brandId: string | null;
+  role: Role | null;
+}) {
   return (
     <Card className="mx-auto mt-10 max-w-lg text-center">
       <CardHeader>
@@ -44,9 +52,14 @@ function EmptyState() {
           Once your brand is set up and the first measurement snapshot lands,
           per-engine visibility appears here.
         </p>
-        <Button asChild>
-          <Link href="/onboarding">Start onboarding</Link>
-        </Button>
+        <div className="flex flex-col items-center gap-3">
+          <Button asChild>
+            <Link href="/onboarding">Start onboarding</Link>
+          </Button>
+          {/* Trigger the first snapshot for an already-onboarded brand; disabled
+              until there's a brand to measure. */}
+          <RunMeasurementButton brandId={brandId} role={role} />
+        </div>
       </CardContent>
     </Card>
   );
@@ -54,6 +67,7 @@ function EmptyState() {
 
 export default function VisibilityPage() {
   const { brandId, range, engine } = useFilters();
+  const role = getRole();
 
   const brandsQuery = useQuery({
     queryKey: ["brands"],
@@ -72,7 +86,7 @@ export default function VisibilityPage() {
   if (brandsQuery.isLoading) return <VisibilitySkeleton />;
 
   if (!brandsQuery.data || brandsQuery.data.length === 0 || activeBrandId === null) {
-    return <EmptyState />;
+    return <EmptyState brandId={activeBrandId} role={role} />;
   }
 
   if (visibilityQuery.isLoading || !visibilityQuery.data) {
