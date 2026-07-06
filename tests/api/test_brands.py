@@ -174,3 +174,66 @@ def test_refresh_opportunities_foreign_brand_404(
         )
     assert r.status_code == 404
     job.assert_not_called()
+
+
+# --- POST /brands/{id}/attribution/reconcile (W4 attribution-reconcile trigger) --------------
+
+
+def test_reconcile_attribution_enqueues_job(
+    app_client: TestClient, editor_token: str, seeded_brands: None
+) -> None:
+    # The TestClient runs the enqueued BackgroundTask before returning, so a patched
+    # run_attribution_reconcile_job records that it was scheduled -- with no live DB work.
+    with patch("gw_geo.api.routers.brands.run_attribution_reconcile_job") as job:
+        r = app_client.post(
+            "/brands/b1/attribution/reconcile",
+            json={"since": "2026-06-01", "until": "2026-07-02"},
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+    assert r.status_code == 202
+    assert r.json() == {"status": "accepted", "brand_id": "b1"}
+    job.assert_called_once()
+    kwargs = job.call_args.kwargs
+    assert kwargs["tenant_id"] == "t1"  # from the token, never the client
+    assert kwargs["brand_id"] == "b1"
+    assert kwargs["since"] == "2026-06-01"
+    assert kwargs["until"] == "2026-07-02"
+
+
+def test_reconcile_attribution_defaults_when_body_omitted(
+    app_client: TestClient, editor_token: str, seeded_brands: None
+) -> None:
+    with patch("gw_geo.api.routers.brands.run_attribution_reconcile_job") as job:
+        r = app_client.post(
+            "/brands/b1/attribution/reconcile",
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+    assert r.status_code == 202
+    job.assert_called_once()
+    kwargs = job.call_args.kwargs
+    assert kwargs["since"] is None and kwargs["until"] is None  # job resolves its default window
+
+
+def test_reconcile_attribution_requires_editor(
+    app_client: TestClient, viewer_token: str, seeded_brands: None
+) -> None:
+    with patch("gw_geo.api.routers.brands.run_attribution_reconcile_job") as job:
+        r = app_client.post(
+            "/brands/b1/attribution/reconcile",
+            headers={"Authorization": f"Bearer {viewer_token}"},
+        )
+    assert r.status_code == 403  # RBAC gate (ui-spec §5): viewer cannot trigger reconcile
+    job.assert_not_called()
+
+
+def test_reconcile_attribution_foreign_brand_404(
+    app_client: TestClient, t1_token: str, seeded_brands: None
+) -> None:
+    # t1 requesting b2 (owned by t2): collapses to 404, never confirming b2 exists.
+    with patch("gw_geo.api.routers.brands.run_attribution_reconcile_job") as job:
+        r = app_client.post(
+            "/brands/b2/attribution/reconcile",
+            headers={"Authorization": f"Bearer {t1_token}"},
+        )
+    assert r.status_code == 404
+    job.assert_not_called()

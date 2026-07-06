@@ -67,6 +67,19 @@ class Settings(BaseSettings):
     # M2 lead-capture pixel
     pixel_write_key_salt: str = _DEV_PIXEL_SALT
 
+    # W4 local pixel serving (no CDN). The pixel SDK is built from `web/pixel/gwgeo.ts` to
+    # `web/public/gwgeo.js` (`npm --prefix web run build:pixel`) and served by the LOCAL backend at
+    # `GET /pixel/gwgeo.js` (see `api/routers/pixel.py`) -- never a CDN. `pixel_js_path` overrides
+    # where that route reads the built bundle from; empty = the in-repo `web/public/gwgeo.js`
+    # (resolved relative to the package, see `api/routers/pixel.py`). `pixel_url` / `pixel_api_base`
+    # are what `GET /lead-capture/snippet` bakes into the install `<script>` tag: `pixel_url` is the
+    # absolute URL the tag's `src` points at (the local bundle above), and `pixel_api_base` is the
+    # origin the pixel beacons `POST /lead-capture/collect` to (emitted as the tag's `data-api`).
+    # Both default to the conventional local uvicorn origin and are env-overridable per deployment.
+    pixel_js_path: str = ""
+    pixel_url: str = "http://localhost:8000/pixel/gwgeo.js"
+    pixel_api_base: str = "http://localhost:8000"
+
     # M3 vector store + embeddings (TRD §2, OT4)
     vector_store: str = "pinecone"            # "pinecone" | "pgvector"
     pinecone_api_key: str = ""

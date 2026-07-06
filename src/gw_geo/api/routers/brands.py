@@ -33,6 +33,8 @@ from gw_geo.api.deps import (
     scoped_session,
 )
 from gw_geo.api.schemas import (
+    AttributionReconcileAccepted,
+    AttributionReconcileRequest,
     BrandCreate,
     BrandCreated,
     BrandOut,
@@ -43,6 +45,7 @@ from gw_geo.api.schemas import (
     OverviewTrendPoint,
 )
 from gw_geo.attribution.pipeline import pipeline_view
+from gw_geo.attribution.trigger import run_attribution_reconcile_job
 from gw_geo.common.config import Settings
 from gw_geo.common.db import Brand, TenantScopedSession
 from gw_geo.common.wiring import configured_engine_names
@@ -257,3 +260,39 @@ def refresh_opportunities(
         run_opportunity_refresh_job, tenant_id=principal.tenant_id, brand_id=brand_id
     )
     return OpportunityRefreshAccepted(status="accepted", brand_id=brand_id)
+
+
+@router.post(
+    "/brands/{brand_id}/attribution/reconcile",
+    status_code=202,
+    response_model=AttributionReconcileAccepted,
+)
+def reconcile_attribution_endpoint(
+    brand_id: str,
+    background_tasks: BackgroundTasks,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+    scoped: Annotated[TenantScopedSession, Depends(scoped_session)],
+    body: AttributionReconcileRequest | None = None,
+) -> AttributionReconcileAccepted:
+    """``POST /brands/{brand_id}/attribution/reconcile`` (W4) -- run the fuzzy attribution writers
+    (direct-referral / citation-linkage / assisted) over the brand's captured sessions + leads and
+    persist the ``attribution_link`` rows ``GET /brands/{id}/pipeline`` reads.
+
+    Requires ``role >= editor`` (a ``viewer`` -> **403**) and brand ownership under the caller's
+    tenant (an unowned/unknown brand -> **404**, never a tenant leak -- same collapse as
+    ``trigger_measurement``/``refresh_opportunities``). The reconcile batch is **scheduled onto a
+    background task**, never executed inline: ``run_attribution_reconcile_job`` opens its own
+    session and runs the three writers out of band, so the request returns **202** immediately and
+    the caller then re-reads ``GET /brands/{id}/pipeline`` for the refreshed attributed value.
+    ``since``/``until`` come from the (optional) body, else the job's default trailing window;
+    ``tenant_id`` is taken from the token (``principal``), never the client."""
+    _ensure_brand_owned(scoped, brand_id)
+    req = body if body is not None else AttributionReconcileRequest()
+    background_tasks.add_task(
+        run_attribution_reconcile_job,
+        tenant_id=principal.tenant_id,
+        brand_id=brand_id,
+        since=req.since,
+        until=req.until,
+    )
+    return AttributionReconcileAccepted(status="accepted", brand_id=brand_id)

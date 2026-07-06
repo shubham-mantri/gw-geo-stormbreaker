@@ -89,6 +89,33 @@ class MeasureAccepted(BaseModel):
     n_samples: int
 
 
+class AttributionReconcileRequest(BaseModel):
+    """``POST /brands/{id}/attribution/reconcile`` body (W4) -- optional window overrides.
+
+    ``since``/``until`` are inclusive ``YYYY-MM-DD`` dates; both default to ``None`` so the endpoint
+    can be called with an empty body (or none), in which case the reconcile job sweeps its default
+    trailing window (``attribution.trigger._LOOKBACK_DAYS``). ``tenant_id`` is **never** in the body
+    -- it is derived from the bearer token (server-enforced scope).
+    """
+
+    since: str | None = None
+    until: str | None = None
+
+
+class AttributionReconcileAccepted(BaseModel):
+    """``POST /brands/{id}/attribution/reconcile`` **202** response (W4) -- acknowledges that the
+    attribution-reconcile batch was scheduled onto a background task.
+
+    Like :class:`MeasureAccepted`/:class:`OpportunityRefreshAccepted`, this is an acknowledgement,
+    not a result: the fuzzy attribution writers (direct/citation/assisted) run asynchronously (never
+    inline in the request), so the caller gets ``brand_id`` back and then reads the refreshed
+    figures from ``GET /brands/{id}/pipeline``.
+    """
+
+    status: str
+    brand_id: str
+
+
 class OverviewTrendPoint(BaseModel):
     """One point of the ``you`` vs ``competitor`` share-of-voice series in
     ``GET /brands/{id}/overview`` (ui-spec §3.1/§6, verbatim)."""

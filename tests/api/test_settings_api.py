@@ -39,6 +39,21 @@ def test_snippet_contains_writekey(app_client: TestClient, admin_token: str) -> 
     assert "gwgeo.js" in snip and "data-key=" in snip
 
 
+def test_snippet_points_at_local_pixel_not_cdn(
+    app_client: TestClient, admin_token: str, settings
+) -> None:
+    # W4: the install snippet must point at the LOCAL, self-hosted pixel + local collect origin,
+    # never the old cdn.gwgeo.io placeholder.
+    r = app_client.get(
+        "/lead-capture/snippet?brand_id=b1",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    snip = r.json()["snippet"]
+    assert "cdn.gwgeo.io" not in snip
+    assert f'src="{settings.pixel_url}"' in snip  # local /pixel/gwgeo.js
+    assert f'data-api="{settings.pixel_api_base}"' in snip  # local collect origin
+
+
 def test_snippet_requires_editor(app_client: TestClient, viewer_token: str) -> None:
     # review fix #4: a write-key is a credential, so minting one requires role >= editor (a viewer
     # -> 403), consistent with the sibling write endpoints.

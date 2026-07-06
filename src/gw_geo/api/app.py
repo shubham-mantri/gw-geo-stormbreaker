@@ -26,7 +26,15 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from gw_geo.api import auth, wiring
 from gw_geo.api.auth import AuthError, TokenPair
 from gw_geo.api.deps import get_db_session, get_settings_dep
-from gw_geo.api.routers import brands, content, leadcapture, opportunities, pipeline, visibility
+from gw_geo.api.routers import (
+    brands,
+    content,
+    leadcapture,
+    opportunities,
+    pipeline,
+    pixel,
+    visibility,
+)
 from gw_geo.api.routers import settings as settings_router
 from gw_geo.api.schemas import LoginRequest, RefreshRequest
 from gw_geo.common.config import Settings, get_settings
@@ -168,6 +176,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(leadcapture.router)
     app.include_router(opportunities.router)
     app.include_router(pipeline.router)
+    # Public, unauthenticated static-asset route serving the locally-built lead-capture pixel
+    # (`web/public/gwgeo.js`) at `GET /pixel/gwgeo.js` -- the local, no-CDN home for the snippet's
+    # `<script src>` (W4).
+    app.include_router(pixel.router)
     app.include_router(visibility.router)
     # Imported as `settings_router` (not `settings`): this function's own `settings` parameter
     # would otherwise shadow the module import for the rest of this function body.
