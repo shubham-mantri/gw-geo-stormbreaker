@@ -257,6 +257,23 @@ class SnippetOut(BaseModel):
     snippet: str
 
 
+class LlmModelConfigOut(BaseModel):
+    """One row of ``GET /settings/llm-model`` (M5): the operator-selected content-chat model slug
+    for one env-driven gateway (``local_claude``/``portkey``/``direct``). System-level config, not
+    tenant-scoped."""
+
+    gateway: str
+    chat_model: str
+
+
+class LlmModelConfigUpdate(BaseModel):
+    """``PUT /settings/llm-model`` body (M5): upsert the ``chat_model`` for one ``gateway``. The
+    *gateway* stays env-driven (``GEO_LLM_GATEWAY``) -- only the *model* is DB-stored/selectable."""
+
+    gateway: str
+    chat_model: str
+
+
 class PipelineTopAnswerOut(BaseModel):
     """One row of ``GET /brands/{id}/pipeline``'s ``top_answers`` (ui-spec §3.6, verbatim)."""
 

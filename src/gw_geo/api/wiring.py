@@ -44,6 +44,7 @@ from gw_geo.content.gateway import (
     build_kb_factory,
     build_llm_client,
     build_voice_scorer,
+    resolve_chat_model,
 )
 from gw_geo.content.kb import KnowledgeBase
 from gw_geo.content.pipeline import ContentService, DbAssetStore
@@ -97,12 +98,16 @@ def build_content_service(
         "and KB claim-grounding remain the enforced gates.",
         tenant_id,
     )
+    # The content-chat model is DB-stored + operator-selectable per gateway (M5); resolve it from
+    # this request's session (falls back to today's constants when unset). The gateway stays
+    # env-driven; embeddings (`build_kb_factory`) are untouched -- Claude can't embed.
+    chat_model = resolve_chat_model(session, gateway=settings.llm_gateway, settings=settings)
     return ContentService(
         kb_factory=build_kb_factory(settings),
-        llm=build_llm_client(settings),
+        llm=build_llm_client(settings, model=chat_model),
         corpus=_NoCorpus(),
-        claim_extractor=build_claim_extractor(settings),
-        voice_scorer=build_voice_scorer(settings),
+        claim_extractor=build_claim_extractor(settings, model=chat_model),
+        voice_scorer=build_voice_scorer(settings, model=chat_model),
         voice_profile={},
         connectors={},
         store=DbAssetStore(session=session, tenant_id=tenant_id),

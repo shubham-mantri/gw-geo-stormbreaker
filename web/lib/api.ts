@@ -11,6 +11,7 @@ import type {
   IntegrationResult,
   KbFactIn,
   KbFactsIngested,
+  LlmModelConfig,
   MeasureAccepted,
   MeasureRequest,
   Opportunity,
@@ -111,6 +112,10 @@ export type ApiClient = {
   ): Promise<IntegrationResult>;
   /** `GET /lead-capture/snippet?brand_id=` — the brand_id query param is required by the backend. */
   leadCaptureSnippet(brandId: string): Promise<SnippetResponse>;
+  /** `GET /settings/llm-model` — the operator-selected chat model per gateway (role ≥ admin). */
+  llmModelConfig(): Promise<LlmModelConfig[]>;
+  /** `PUT /settings/llm-model` — upsert one gateway's chat model (role ≥ admin); returns the row. */
+  setLlmModelConfig(input: LlmModelConfig): Promise<LlmModelConfig>;
 };
 
 /**
@@ -238,5 +243,11 @@ export function apiClient(
       request<SnippetResponse>(
         `/lead-capture/snippet${queryString({ brand_id: brandId })}`,
       ),
+    llmModelConfig: () => request<LlmModelConfig[]>("/settings/llm-model"),
+    setLlmModelConfig: (input) =>
+      request<LlmModelConfig>("/settings/llm-model", {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
   };
 }

@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session as SASession
 
 from gw_geo.common.config import Settings, get_settings
 from gw_geo.common.db import Brand
-from gw_geo.content.gateway import build_kb_factory, build_llm_client
+from gw_geo.content.gateway import build_kb_factory, build_llm_client, resolve_chat_model
 from gw_geo.content.kb import KnowledgeBase
 from gw_geo.seeding.brief_llm import PortkeyBriefLLM
 from gw_geo.seeding.briefs import BriefLLM, build_brief
@@ -188,15 +188,18 @@ def run_seeding_discovery_job(
         since = since or default_since
         until = until or default_until
 
-    brief_llm: BriefLLM | None = None
-    kb_factory: Callable[[str], KnowledgeBase] | None = None
-    if _llm_configured(settings):
-        brief_llm = PortkeyBriefLLM(build_llm_client(settings))
-        kb_factory = build_kb_factory(settings)
-
     engine = create_engine(settings.database_url)
     session = Session(engine)
     try:
+        brief_llm: BriefLLM | None = None
+        kb_factory: Callable[[str], KnowledgeBase] | None = None
+        if _llm_configured(settings):
+            # The content-chat model is DB-stored + operator-selectable per gateway (M5); resolve it
+            # from this job's own session (falls back to today's constants when unset). Built here,
+            # after the session opens, so briefing threads the operator-selected model.
+            model = resolve_chat_model(session, gateway=settings.llm_gateway, settings=settings)
+            brief_llm = PortkeyBriefLLM(build_llm_client(settings, model=model))
+            kb_factory = build_kb_factory(settings)
         count = run_seeding_discovery(
             session=session,
             tenant_id=tenant_id,

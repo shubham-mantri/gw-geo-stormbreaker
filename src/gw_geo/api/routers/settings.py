@@ -31,6 +31,8 @@ from gw_geo.api.deps import get_db_session, get_settings_dep, require_role, scop
 from gw_geo.api.schemas import (
     IntegrationConnect,
     IntegrationStatusOut,
+    LlmModelConfigOut,
+    LlmModelConfigUpdate,
     PromptCreate,
     PromptCreated,
     PromptOut,
@@ -41,9 +43,14 @@ from gw_geo.attribution.integrations.base import Integration
 from gw_geo.attribution.integrations.crm import HubSpotIntegration, SalesforceIntegration
 from gw_geo.attribution.integrations.ga4 import GA4Integration
 from gw_geo.common.config import Settings
-from gw_geo.common.db import Brand, Prompt, TenantScopedSession
+from gw_geo.common.db import Brand, LlmModelConfig, Prompt, TenantScopedSession
 
 router = APIRouter(tags=["settings"])
+
+# The content-chat model is an operator/admin-level setting, so both reading and updating it require
+# ``role >= admin`` (``admin`` is a distinct role in ``auth.ROLES``; ``owner`` outranks it and also
+# passes). Mirrors ``POST /integrations/{kind}``'s ``require_role("admin")`` gate.
+_LLM_MODEL_MIN_ROLE = "admin"
 
 
 def _reject_foreign_brand(session: SASession, *, tenant_id: str, brand_id: str) -> None:
@@ -177,3 +184,45 @@ def get_snippet(
             f'data-api="{settings.pixel_api_base}"></script>'
         )
     )
+
+
+@router.get(
+    "/settings/llm-model",
+    response_model=list[LlmModelConfigOut],
+    dependencies=[Depends(require_role(_LLM_MODEL_MIN_ROLE))],
+)
+def list_llm_model_config(
+    session: Annotated[SASession, Depends(get_db_session)],
+) -> list[LlmModelConfigOut]:
+    """``GET /settings/llm-model`` (M5) -- the operator-selected content-chat model per gateway.
+
+    Returns every ``llm_model_config`` row (the three env gateways once seeded). System-level config,
+    so it uses a plain (unscoped) session and derives no tenant filter -- the config is global, not
+    tenant-owned. Requires ``role >= admin`` (an ``editor``/``viewer`` -> **403**); the *gateway*
+    stays env-driven (``GEO_LLM_GATEWAY``) and is not editable here."""
+    rows = session.query(LlmModelConfig).order_by(LlmModelConfig.gateway).all()
+    return [LlmModelConfigOut(gateway=r.gateway, chat_model=r.chat_model) for r in rows]
+
+
+@router.put(
+    "/settings/llm-model",
+    response_model=LlmModelConfigOut,
+    dependencies=[Depends(require_role(_LLM_MODEL_MIN_ROLE))],
+)
+def upsert_llm_model_config(
+    body: LlmModelConfigUpdate,
+    session: Annotated[SASession, Depends(get_db_session)],
+) -> LlmModelConfigOut:
+    """``PUT /settings/llm-model`` (M5) -- upsert the ``chat_model`` for one ``gateway``.
+
+    Idempotent by ``gateway`` (the PK): updates the row's model when present, else inserts it, so a
+    gateway with no seeded row can still be configured. Global config (plain session, no tenant
+    scope). Requires ``role >= admin`` (an ``editor``/``viewer`` -> **403**). Only the *model* is
+    stored -- the *gateway* itself stays env-driven and cannot be switched here."""
+    row = session.get(LlmModelConfig, body.gateway)
+    if row is None:
+        session.add(LlmModelConfig(gateway=body.gateway, chat_model=body.chat_model))
+    else:
+        row.chat_model = body.chat_model
+    session.commit()
+    return LlmModelConfigOut(gateway=body.gateway, chat_model=body.chat_model)
