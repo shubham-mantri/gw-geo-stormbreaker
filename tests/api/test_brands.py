@@ -9,9 +9,13 @@ task never builds a real runtime or probes an engine.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+
+from gw_geo.api.routers import brands
+from gw_geo.ranking.fetch import FetchedPage
 
 
 def test_list_brands_scoped(app_client: TestClient, t1_token: str, seeded_brands: None) -> None:
@@ -26,6 +30,88 @@ def test_create_brand_requires_editor(app_client: TestClient, viewer_token: str)
     r = app_client.post(
         "/brands",
         json={"name": "Acme", "domain": "acme.com"},
+        headers={"Authorization": f"Bearer {viewer_token}"},
+    )
+    assert r.status_code == 403
+
+
+# --- POST /brands/suggest (M5 domain-first onboarding auto-fill) ------------------------------
+
+
+class _FakeFetcher:
+    """A `PageFetcher` returning a canned `FetchedPage` -- no live HTTP (the SSRF-guarded real one is
+    swapped out via the `get_brand_suggest_deps` override)."""
+
+    def __init__(self, page: FetchedPage | None) -> None:
+        self._page = page
+
+    def fetch(self, url: str) -> FetchedPage | None:
+        return self._page
+
+
+class _FakeLLM:
+    """An `LLMClient` returning a canned structured competitor dict -- no live LLM call."""
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        self._result = result
+
+    def complete(
+        self, *, system: str, prompt: str, schema: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return self._result
+
+
+def _wire_suggest(
+    client: TestClient, *, page: FetchedPage | None, competitors: list[dict[str, str]]
+) -> None:
+    """Point `/brands/suggest`'s injected fetcher+LLM at hermetic fakes (the test seam)."""
+    deps = brands.BrandSuggestDeps(
+        fetcher=_FakeFetcher(page), llm=_FakeLLM({"competitors": competitors})
+    )
+    client.app.dependency_overrides[brands.get_brand_suggest_deps] = lambda: deps
+
+
+def test_suggest_prefills_name_and_competitors(
+    app_client: TestClient, editor_token: str
+) -> None:
+    # A title-only page -> name parsed from <title> (boilerplate stripped); competitors from the LLM.
+    _wire_suggest(
+        app_client,
+        page=FetchedPage(text="<head><title>Acme | The best CRM</title></head>"),
+        competitors=[{"name": "Beta"}, {"name": "Gamma"}],
+    )
+    r = app_client.post(
+        "/brands/suggest",
+        json={"domain": "acme.com"},
+        headers={"Authorization": f"Bearer {editor_token}"},
+    )
+    assert r.status_code == 200  # static /brands/suggest path matched, not a {brand_id} route
+    assert r.json() == {"name": "Acme", "domain": "acme.com", "competitors": ["Beta", "Gamma"]}
+
+
+def test_suggest_no_db_write(app_client: TestClient, editor_token: str) -> None:
+    # Pure read/suggest: suggesting for a domain must not create a brand.
+    _wire_suggest(app_client, page=None, competitors=[])
+    app_client.post(
+        "/brands/suggest",
+        json={"domain": "acme.com"},
+        headers={"Authorization": f"Bearer {editor_token}"},
+    )
+    listed = app_client.get("/brands", headers={"Authorization": f"Bearer {editor_token}"})
+    assert listed.json() == []  # nothing persisted
+
+
+def test_suggest_requires_auth(app_client: TestClient) -> None:
+    # No token -> 401 before the body runs, so no live fetch/LLM even with the real default deps.
+    r = app_client.post("/brands/suggest", json={"domain": "acme.com"})
+    assert r.status_code == 401
+
+
+def test_suggest_requires_editor(app_client: TestClient, viewer_token: str) -> None:
+    # Same principal requirement as POST /brands: a viewer -> 403 (body never runs).
+    r = app_client.post(
+        "/brands/suggest",
+        json={"domain": "acme.com"},
         headers={"Authorization": f"Bearer {viewer_token}"},
     )
     assert r.status_code == 403

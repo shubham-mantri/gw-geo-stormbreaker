@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 
 import { OnboardingWizard } from "./OnboardingWizard";
@@ -27,6 +27,49 @@ describe("OnboardingWizard", () => {
 
     fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: "acme.com" } });
     expect(screen.getByRole("button", { name: /next/i })).toBeEnabled();
+  });
+
+  it("looks up the domain to prefill brand name and seed competitors (both editable)", async () => {
+    const client = mockApi();
+    vi.spyOn(client, "suggestBrand").mockResolvedValue({
+      name: "Acme Corp",
+      domain: "acme.com",
+      competitors: ["Beta", "Gamma"],
+    });
+
+    render(<OnboardingWizard />);
+    fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: "acme.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /look up/i }));
+
+    // Brand name prefilled into the editable field; the lookup used the typed domain.
+    expect(await screen.findByDisplayValue("Acme Corp")).toBeInTheDocument();
+    expect(client.suggestBrand).toHaveBeenCalledWith("acme.com");
+
+    // Competitors seeded into step 2 — present and removable (editable).
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(screen.getByText(/step 2 of 5/i)).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.getByText("Gamma")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /remove beta/i }));
+    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+  });
+
+  it("falls back to manual entry (no block, no error) when the lookup fails", async () => {
+    const client = mockApi();
+    vi.spyOn(client, "suggestBrand").mockRejectedValue(new Error("lookup boom"));
+
+    render(<OnboardingWizard />);
+    fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: "acme.com" } });
+    fireEvent.click(screen.getByRole("button", { name: /look up/i }));
+
+    await waitFor(() => expect(client.suggestBrand).toHaveBeenCalled());
+    // Silent: no error alert, and the name field stays empty for manual entry.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // Manual entry still works: type the name, then advance to competitors.
+    fireEvent.change(screen.getByLabelText(/brand name/i), { target: { value: "Manual Co" } });
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(screen.getByText(/step 2 of 5/i)).toBeInTheDocument();
   });
 
   it("supports going back to a previous step", () => {

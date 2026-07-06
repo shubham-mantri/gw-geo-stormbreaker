@@ -3,6 +3,7 @@ import type {
   Alert,
   Brand,
   BrandCreated,
+  BrandSuggestion,
   ContentApproveResponse,
   ContentGenerateResponse,
   ContentPublishResponse,
@@ -84,6 +85,12 @@ export type ApiClient = {
     domain: string;
     competitors?: string[];
   }): Promise<BrandCreated>;
+  /**
+   * `POST /brands/suggest` — domain-first onboarding auto-fill (role ≥ editor). Given a domain,
+   * returns a suggested brand `name` (read off the site) + likely `competitors`, both editable.
+   * Purely advisory: performs no DB write.
+   */
+  suggestBrand(domain: string): Promise<BrandSuggestion>;
   /**
    * `POST /brands/{id}/measure` — kick off a measurement run (role ≥ editor;
    * brand-ownership checked server-side). Returns **202** with the scheduled run
@@ -189,6 +196,11 @@ export function apiClient(
       request<BrandCreated>("/brands", {
         method: "POST",
         body: JSON.stringify(input),
+      }),
+    suggestBrand: (domain) =>
+      request<BrandSuggestion>("/brands/suggest", {
+        method: "POST",
+        body: JSON.stringify({ domain }),
       }),
     measureBrand: (brandId, body = {}) =>
       request<MeasureAccepted>(`${brandPath(brandId)}/measure`, {

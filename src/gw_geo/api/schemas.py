@@ -17,6 +17,11 @@ from pydantic import BaseModel, Field
 
 from gw_geo.common.models import ContentDraft
 
+# Re-exported so the API layer's response model has a single source of truth: `BrandSuggestion` is
+# owned by the onboarding domain module (`POST /brands/suggest` returns it verbatim), the same way
+# this module reuses `ContentDraft` from `common.models` rather than duplicating it.
+from gw_geo.onboarding.suggest import BrandSuggestion as BrandSuggestion
+
 
 class LoginRequest(BaseModel):
     """``POST /auth/login`` body."""
@@ -58,6 +63,17 @@ class BrandCreated(BaseModel):
     """``POST /brands`` response (ui-spec.md §6, verbatim): the new brand's id."""
 
     id: str
+
+
+class BrandSuggestRequest(BaseModel):
+    """``POST /brands/suggest`` body (M5 domain-first onboarding): the bare domain to look up.
+
+    ``tenant_id`` is **never** in the body -- the endpoint is authed and reads it from the token,
+    though it performs no DB write (pure read/suggest). The response is a :class:`BrandSuggestion`
+    whose fields are pre-filled suggestions the user then edits before ``POST /brands``.
+    """
+
+    domain: str
 
 
 class MeasureTriggerRequest(BaseModel):

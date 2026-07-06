@@ -136,6 +136,8 @@ export function mockApi(overrides: MockApiOverrides = {}): ApiClient {
     publishContent: () =>
       Promise.resolve({ status: "published", published_url: "https://hosted.gwgeo.io/p/c1" }),
     createBrand: () => Promise.resolve({ id: "new-brand" }),
+    suggestBrand: (domain) =>
+      Promise.resolve({ name: "Acme", domain, competitors: ["Beta"] }),
     measureBrand: (brandId) => Promise.resolve({ ...data.measure, brand_id: brandId }),
     savePrompts: (_brandId, prompts) => Promise.resolve(prompts),
     connectIntegration: () => Promise.resolve({ status: "connected" }),
