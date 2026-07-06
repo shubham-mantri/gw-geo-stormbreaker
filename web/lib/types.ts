@@ -11,6 +11,18 @@ export type Brand = {
 
 export type BrandCreated = { id: string };
 
+/**
+ * `POST /brands/suggest` → domain-first onboarding auto-fill (mirrors the backend
+ * `BrandSuggestion`): a brand `name` read off the site, the echoed `domain`, and up to ~6
+ * suggested `competitors`. Every field is a suggestion the user edits in the wizard before
+ * `POST /brands` — nothing is persisted by this call.
+ */
+export type BrandSuggestion = {
+  name: string;
+  domain: string;
+  competitors: string[];
+};
+
 // ── Measurement trigger (W2) ──────────────────────────────────────────────────
 /**
  * `POST /brands/{id}/measure` body — all optional run overrides (mirrors the

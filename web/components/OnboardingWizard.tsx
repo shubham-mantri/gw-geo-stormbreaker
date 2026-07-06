@@ -49,9 +49,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Step 1 — brand.
+  // Step 1 — brand. `domain` is the primary input: "Look up" auto-fills `brandName` and seeds the
+  // competitors list from the site + LLM (both stay fully editable).
   const [brandName, setBrandName] = useState("");
   const [domain, setDomain] = useState("");
+  const [lookingUp, setLookingUp] = useState(false);
 
   // Step 2 — competitors.
   const [competitorInput, setCompetitorInput] = useState("");
@@ -68,6 +70,27 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   function goBack() {
     setError(null);
     setStep((s) => Math.max(1, s - 1));
+  }
+
+  /**
+   * Domain-first auto-fill: ask the backend to read the brand name off the site and suggest
+   * competitors, then pre-fill both (still editable). Best-effort — a failed lookup is swallowed so
+   * the user just falls back to typing the name manually; it never blocks onboarding.
+   */
+  async function lookUp() {
+    const value = domain.trim();
+    if (value === "" || lookingUp) return;
+    setLookingUp(true);
+    setError(null);
+    try {
+      const suggestion = await apiClient(getToken).suggestBrand(value);
+      if (suggestion.name) setBrandName(suggestion.name);
+      if (Array.isArray(suggestion.competitors)) setCompetitors(suggestion.competitors);
+    } catch {
+      // Silent fallback to manual entry — a lookup failure must not block onboarding.
+    } finally {
+      setLookingUp(false);
+    }
   }
 
   function addCompetitor() {
@@ -143,7 +166,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         </p>
         <CardTitle className="text-xl">{STEP_TITLES[step - 1]}</CardTitle>
         {step === 1 ? (
-          <CardDescription>Tell us who you are and where you live on the web.</CardDescription>
+          <CardDescription>
+            Start with your domain — we&apos;ll look up your brand name and competitors for you.
+          </CardDescription>
         ) : null}
         {step === 2 ? <CardDescription>Who should we compare you against?</CardDescription> : null}
         {step === 3 ? (
@@ -167,21 +192,49 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {step === 1 ? (
           <div className="space-y-4">
             <div className="space-y-2">
+              <Label htmlFor="onboarding-domain">Domain</Label>
+              <div className="flex items-end gap-2">
+                <Input
+                  id="onboarding-domain"
+                  className="flex-1"
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                  placeholder="acme.com"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      lookUp();
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={lookUp}
+                  disabled={domain.trim() === "" || lookingUp}
+                >
+                  {lookingUp ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                      Looking up…
+                    </>
+                  ) : (
+                    "Look up"
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Enter your domain and we&apos;ll pre-fill your brand name and competitors — all
+                editable.
+              </p>
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="onboarding-brand-name">Brand name</Label>
               <Input
                 id="onboarding-brand-name"
                 value={brandName}
                 onChange={(e) => setBrandName(e.target.value)}
                 placeholder="Acme"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="onboarding-domain">Domain</Label>
-              <Input
-                id="onboarding-domain"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                placeholder="acme.com"
               />
             </div>
           </div>

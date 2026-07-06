@@ -17,6 +17,7 @@ confirmed to the caller).
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from uuid import uuid4
@@ -38,6 +39,8 @@ from gw_geo.api.schemas import (
     BrandCreate,
     BrandCreated,
     BrandOut,
+    BrandSuggestion,
+    BrandSuggestRequest,
     MeasureAccepted,
     MeasureTriggerRequest,
     OpportunityRefreshAccepted,
@@ -51,15 +54,46 @@ from gw_geo.attribution.trigger import run_attribution_reconcile_job
 from gw_geo.common.config import Settings
 from gw_geo.common.db import Brand, TenantScopedSession
 from gw_geo.common.wiring import configured_engine_names
+from gw_geo.content.gateway import build_llm_client
+from gw_geo.content.generate import LLMClient
 from gw_geo.measurement import feed
 from gw_geo.measurement.trigger import run_measurement_job
+from gw_geo.onboarding.suggest import suggest_brand_details
 from gw_geo.orchestration.opportunity_gen import run_opportunity_refresh_job
 from gw_geo.orchestration.ranking_gen import run_ranking_refresh_job
+from gw_geo.ranking.fetch import HttpxPageFetcher, PageFetcher
 
 router = APIRouter(tags=["brands"])
 
 _RANGE_RE = re.compile(r"^(\d+)d$")
 _DEFAULT_RANGE_DAYS = 30
+
+
+@dataclass(frozen=True)
+class BrandSuggestDeps:
+    """The injected collaborators for ``POST /brands/suggest``: the page fetcher + LLM client.
+
+    Bundled so a test overrides one dependency (:func:`get_brand_suggest_deps`) with a single fake,
+    the same seam ``routers/content.py`` uses for its ``ContentService``.
+    """
+
+    fetcher: PageFetcher
+    llm: LLMClient
+
+
+def get_brand_suggest_deps(
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+) -> BrandSuggestDeps:
+    """Injected fetcher + LLM for ``POST /brands/suggest`` -- the real, config-wired collaborators.
+
+    The default is the *live* pairing (SSRF-guarded :class:`~gw_geo.ranking.fetch.HttpxPageFetcher`
+    + the gateway-selected :class:`~gw_geo.content.generate.LLMClient`), unlike the raising
+    ``content.get_content_service`` default, because constructing these opens **no** connection
+    (``HttpxPageFetcher`` only stores config; ``build_llm_client`` returns a client that connects
+    lazily on first ``complete``), so it is safe to build at request time. Tests override it with
+    hermetic fakes via ``app.dependency_overrides[get_brand_suggest_deps]`` -- no live HTTP/LLM call.
+    """
+    return BrandSuggestDeps(fetcher=HttpxPageFetcher(), llm=build_llm_client(settings))
 
 
 def _since_until(range_param: str | None) -> tuple[str, str]:
@@ -140,6 +174,34 @@ def create_brand(
     scoped.add(brand)
     scoped.commit()
     return BrandCreated(id=brand.id)
+
+
+@router.post(
+    "/brands/suggest",
+    response_model=BrandSuggestion,
+    dependencies=[Depends(require_role("editor"))],
+)
+def suggest_brand(
+    body: BrandSuggestRequest,
+    deps: Annotated[BrandSuggestDeps, Depends(get_brand_suggest_deps)],
+) -> BrandSuggestion:
+    """``POST /brands/suggest`` (M5 domain-first onboarding) -- auto-fill a brand from its domain.
+
+    From the posted ``domain``, reads the brand **name** off the live site (JSON-LD/``og:site_name``/
+    ``<title>``, else a domain heuristic) and asks the LLM for likely **competitors** -- both returned
+    as editable suggestions. Requires ``role >= editor`` (a ``viewer`` -> **403**, an unauthenticated
+    caller -> **401**), matching ``POST /brands``'s principal requirement (the user who will onboard
+    the brand); ``tenant_id`` is derived from the token. Performs **no DB write** -- pure read/suggest.
+
+    Never surfaces a 5xx from a dead site or an unconfigured/failing LLM: :func:`suggest_brand_details`
+    is total, degrading to the domain heuristic + an empty competitor list, so onboarding always
+    proceeds to manual entry. The only network touched is the user-supplied domain, via the injected
+    SSRF-guarded fetcher (see :func:`get_brand_suggest_deps`).
+
+    Registered before the ``/brands/{brand_id}/...`` routes so the static ``/brands/suggest`` path is
+    matched literally, never captured as a ``brand_id`` path param.
+    """
+    return suggest_brand_details(domain=body.domain, fetcher=deps.fetcher, llm=deps.llm)
 
 
 @router.get("/brands/{brand_id}/overview", response_model=OverviewOut)
