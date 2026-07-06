@@ -60,6 +60,35 @@ class BrandCreated(BaseModel):
     id: str
 
 
+class MeasureTriggerRequest(BaseModel):
+    """``POST /brands/{id}/measure`` body (W2 live wiring) -- all optional run overrides.
+
+    Every field defaults to ``None`` so the endpoint can be called with an empty body (or none at
+    all): ``engines`` then resolves to every API-keyed engine the runtime has configured, ``geos``
+    / ``n_samples`` to the settings defaults, and ``date`` to today (UTC). ``tenant_id`` is
+    **never** in the body -- it is derived from the bearer token (server-enforced scope).
+    """
+
+    engines: list[str] | None = None
+    geos: list[str] | None = None
+    n_samples: int | None = None
+    date: str | None = None
+
+
+class MeasureAccepted(BaseModel):
+    """``POST /brands/{id}/measure`` **202** response -- describes the run that was scheduled.
+
+    The measurement itself runs asynchronously on a background task (never inline in the request),
+    so this is an acknowledgement, not a result: it echoes the resolved ``engines`` + ``n_samples``
+    so the caller can see exactly what was enqueued for ``brand_id``.
+    """
+
+    status: str
+    brand_id: str
+    engines: list[str]
+    n_samples: int
+
+
 class OverviewTrendPoint(BaseModel):
     """One point of the ``you`` vs ``competitor`` share-of-voice series in
     ``GET /brands/{id}/overview`` (ui-spec §3.1/§6, verbatim)."""
