@@ -52,9 +52,10 @@ class _FakeFetcher:
 class _FakeLLM:
     """An `LLMClient` returning one canned dict for every stage -- no live LLM call.
 
-    The suggest pipeline calls it three times (profile -> draft -> critique); the shared
-    ``{name, competitors:[{name}]}`` shape parses cleanly at each stage (profile reads ``name``,
-    draft/critique read ``competitors``), so a single fake drives the whole flow end-to-end here.
+    The suggest pipeline calls it four times (profile -> draft -> critique -> seed-prompts); the
+    shared ``{name, competitors:[{name}], prompts:[...]}`` shape parses cleanly at each stage
+    (profile reads ``name``, draft/critique read ``competitors``, seed-prompts reads ``prompts``),
+    so a single fake drives the whole flow end-to-end here.
     """
 
     def __init__(self, result: dict[str, Any]) -> None:
@@ -72,9 +73,10 @@ def _wire_suggest(
     page: FetchedPage | None,
     competitors: list[dict[str, str]],
     name: str = "Acme",
+    seed_prompts: list[str] | None = None,
 ) -> None:
     """Point `/brands/suggest`'s injected fetcher + research/critic LLMs at hermetic fakes."""
-    fake = _FakeLLM({"name": name, "competitors": competitors})
+    fake = _FakeLLM({"name": name, "competitors": competitors, "prompts": seed_prompts or []})
     deps = brands.BrandSuggestDeps(fetcher=_FakeFetcher(page), llm=fake, critic=fake)
     client.app.dependency_overrides[brands.get_brand_suggest_deps] = lambda: deps
 
@@ -84,11 +86,13 @@ def test_suggest_starts_a_job_and_transitions_running_to_done(
 ) -> None:
     # POST *starts* the async job (202 + job_id). The TestClient runs the enqueued BackgroundTask
     # before returning, so by the time we poll the (hermetic-fake) pipeline has completed -> done,
-    # carrying the refined suggestion. name comes from the profile stage; competitors from critique.
+    # carrying the refined suggestion. name comes from the profile stage; competitors from critique;
+    # seed_prompts from the seed-prompt stage -- all surfaced in the result the client polls.
     _wire_suggest(
         app_client,
         page=FetchedPage(text="<head><title>Acme | The best CRM</title></head>"),
         competitors=[{"name": "Beta"}, {"name": "Gamma"}],
+        seed_prompts=["best CRM for startups", "top CRMs for small teams"],
     )
     started = app_client.post(
         "/brands/suggest",
@@ -111,6 +115,7 @@ def test_suggest_starts_a_job_and_transitions_running_to_done(
         "name": "Acme",
         "domain": "acme.com",
         "competitors": ["Beta", "Gamma"],
+        "seed_prompts": ["best CRM for startups", "top CRMs for small teams"],
     }
     assert body["error"] is None
 

@@ -22,6 +22,14 @@ lines). This module answers with a **three-stage pipeline** instead:
       or demotes scale/segment mismatches, and ensures every product category is represented
       (adding a real competitor for any uncovered one). Returns the final ordered, deduped names.
 
+Alongside those competitors, a final **seed-prompts** stage (d) recommends the realistic AI-search
+queries the product should measure the brand on -- one plain (web-search-free) call grounded on the
+same profile + competitor set. So one grounded lookup pre-fills BOTH the wizard's Competitors step
+and its Seed-prompts step, making day-one measurement meaningful. It degrades independently: a
+failure yields ``seed_prompts=[]`` and never touches the competitor result. White-hat (PRD NG1):
+these are honest measurement queries a real customer would type, never brand-name-stuffed or
+grey-hat, and the model is told to use only the profile's own product categories (never invent one).
+
 Two injected seams keep the module hermetic (no network/LLM call under test):
 
 - ``fetcher: PageFetcher`` -- the ranking crawler's SSRF-guarded fetch seam
@@ -70,12 +78,17 @@ _STAGE_LABELS: dict[str, str] = {
     "profiling": "Analyzing your brand and product categories",
     "researching": "Researching competitors across the web",
     "refining": "De-duplicating and checking category coverage",
+    "generating_prompts": "Generating recommended prompts",
     "done": "Done",
 }
 
 # Final competitor cap (ui-spec onboarding: a short, editable seed list, not a directory). The
 # critique is asked to cap at this too; the deterministic clean-up below enforces it as a backstop.
 _MAX_COMPETITORS = 8
+
+# Recommended seed-prompt cap (the wizard's editable Seed-prompts step). The prompt asks for 8-12;
+# the deterministic dedupe/cap clean-up below enforces this ceiling as a backstop.
+_MAX_SEED_PROMPTS = 12
 
 # How many raw candidates the draft may propose before the critique trims them to the final set.
 _DRAFT_CANDIDATES = 12
@@ -182,6 +195,21 @@ _CRITIQUE_SCHEMA: dict[str, Any] = {
     "required": ["competitors"],
 }
 
+# (d) Seed prompts: the recommended AI-search queries to measure the brand on (plain strings).
+_SEED_PROMPTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "prompts": {
+            "type": "array",
+            "description": "8-12 realistic, high-intent AI-search queries a potential customer "
+            "would type into ChatGPT/Perplexity/Google AI Mode where this brand should ideally "
+            "surface -- natural end-user phrasing, spanning every product category in the profile.",
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["prompts"],
+}
+
 _PROFILE_SYSTEM = (
     "You research and profile the company behind a website so its competitive set can be scoped "
     "accurately. Using the page text provided -- and, if you can search the web, a brief current "
@@ -218,6 +246,21 @@ _CRITIQUE_SYSTEM = (
     "described."
 )
 
+_SEED_PROMPTS_SYSTEM = (
+    "You propose the AI-search queries a brand should be measured on: the realistic, high-intent "
+    "prompts a potential customer would type into an AI search engine (ChatGPT, Perplexity, Google "
+    "AI Mode) when they have the need this brand serves, and where this brand should ideally surface "
+    "in the answer. Given the brand's profile (name, product categories, size/segment) and its "
+    "competitor set, return 8-12 such queries as a mix of buyer-intent searches (e.g. 'best "
+    "<category> for <segment>', 'top <category> companies for <use-case>') and "
+    "informational/comparison searches (e.g. 'how do I <job-to-be-done>', '<category-A> vs "
+    "<category-B>'). Cover EVERY product category in the profile, not just the dominant one. Phrase "
+    "each as a natural end-user query -- never stuff the brand's own name into a query, and never "
+    "write manipulative or grey-hat prompts; these are honest measurement queries, not ads. Use "
+    "only the product categories given -- never invent one. Respond only via the requested tool "
+    "call, as the exact JSON object described."
+)
+
 
 @dataclass(frozen=True)
 class _TargetProfile:
@@ -242,13 +285,19 @@ class _Candidate:
 
 class BrandSuggestion(BaseModel):
     """The onboarding auto-fill: a proposed brand ``name`` (from the site + web research), the
-    echoed ``domain``, and up to ~8 suggested ``competitors`` (names). Every field is a *suggestion*
-    the user edits in the wizard -- nothing here is persisted until the user submits ``POST /brands``.
+    echoed ``domain``, up to ~8 suggested ``competitors`` (names), and up to 12 recommended
+    ``seed_prompts`` -- the realistic AI-search queries the product should measure the brand on.
+    Every field is a *suggestion* the user edits in the wizard -- nothing here is persisted until the
+    user submits ``POST /brands`` (and, for the prompts, ``POST /brands/{id}/prompts``).
+
+    ``seed_prompts`` is additive + optional (defaults to ``[]``), so the response contract stays
+    backward-compatible and a failed seed-prompt stage simply yields an empty list.
     """
 
     name: str
     domain: str
     competitors: list[str] = Field(default_factory=list)
+    seed_prompts: list[str] = Field(default_factory=list)
 
 
 def normalize_url(domain: str) -> str:
@@ -551,6 +600,33 @@ def _parse_critique_names(result: Any) -> list[str]:
     return _str_list(result.get("competitors"))
 
 
+# --- stage (d): recommended seed prompts (the AI-search queries to measure the brand on) -------
+
+
+def _build_seed_prompts_prompt(*, profile: _TargetProfile | None, competitors: list[str]) -> str:
+    lines = _profile_lines(profile)
+    if competitors:
+        lines.append(
+            "Known competitors (for comparison-style queries): " + ", ".join(competitors) + "."
+        )
+    lines.append(
+        "Return 8-12 realistic AI-search 'prompts' a potential customer would type into an AI "
+        "search engine where this brand should ideally surface -- a mix of buyer-intent ('best "
+        "<category> for <segment>', 'top <category> companies for <use-case>') and "
+        "informational/comparison ('how do I <job-to-be-done>', '<category-A> vs <category-B>'). "
+        "Cover EVERY product category above, not just one. Phrase each as a natural end-user query; "
+        "never include the brand's own name; never invent a category."
+    )
+    return "\n".join(lines)
+
+
+def _parse_seed_prompts(result: Any) -> list[str]:
+    """The recommended seed-prompt strings from a stage-(d) result (accepts str or ``{name}`` items)."""
+    if not isinstance(result, dict):
+        return []
+    return _str_list(result.get("prompts"))
+
+
 # --- shared helpers ---------------------------------------------------------------------------
 
 
@@ -669,6 +745,28 @@ def _run_critique(
     return _parse_critique_names(result)
 
 
+def _suggest_seed_prompts(
+    *, profile: _TargetProfile | None, competitors: list[str], llm: LLMClient
+) -> list[str]:
+    """Stage (d): recommend 8-12 grounded AI-search seed prompts; ``[]`` on any failure (never raises).
+
+    One **plain** (web-search-free) ``complete`` call -- the ``critic`` client is passed here, so no
+    web search and modest latency (~15-30s) -- grounded on the target ``profile`` (brand name + full
+    product-category set) and the ``competitors`` set. The reply is deduped, trimmed, and capped at
+    :data:`_MAX_SEED_PROMPTS`. Any failed/empty/malformed reply degrades to ``[]`` -- the wizard
+    still lets the user type their own prompts, so onboarding never blocks on this stage.
+    """
+    try:
+        result = llm.complete(
+            system=_SEED_PROMPTS_SYSTEM,
+            prompt=_build_seed_prompts_prompt(profile=profile, competitors=competitors),
+            schema=_SEED_PROMPTS_SCHEMA,
+        )
+    except Exception:
+        return []
+    return _clean_names(_parse_seed_prompts(result), brand_name="", cap=_MAX_SEED_PROMPTS)
+
+
 def suggest_brand_details(
     *,
     domain: str,
@@ -677,25 +775,28 @@ def suggest_brand_details(
     critic: LLMClient | None = None,
     on_progress: ProgressHook | None = None,
 ) -> BrandSuggestion:
-    """Propose a brand ``name`` + grounded, self-critiqued ``competitors`` for a bare ``domain``.
+    """Propose a brand ``name`` + grounded ``competitors`` + recommended ``seed_prompts`` for a bare
+    ``domain``.
 
-    Runs the three-stage pipeline -- profile (a) -> web-search-grounded draft (b) -> critique/refine
-    (c) -- on the injected clients. ``llm`` drives the research/draft stages (web-search-enabled on
-    the local-Claude gateway); ``critic`` drives the (web-search-free) refine stage, defaulting to
-    ``llm`` when omitted. The brand name comes from the profile (else the domain heuristic); the
-    competitor list is the critique's refined output (else the draft's direct-tier names), run
-    through a deterministic dedupe/self-exclude/cap backstop.
+    Runs the competitor pipeline -- profile (a) -> web-search-grounded draft (b) -> critique/refine
+    (c) -- then a seed-prompts stage (d), on the injected clients. ``llm`` drives the research/draft
+    stages (web-search-enabled on the local-Claude gateway); ``critic`` drives the (web-search-free)
+    refine + seed-prompt stages, defaulting to ``llm`` when omitted. The brand name comes from the
+    profile (else the domain heuristic); the competitor list is the critique's refined output (else
+    the draft's direct-tier names), run through a deterministic dedupe/self-exclude/cap backstop; and
+    ``seed_prompts`` is up to 12 recommended AI-search queries grounded on the profile + competitors.
 
     ``on_progress`` (optional, backward-compatible: ``None`` -> today's behavior) is called at the
     **start** of each stage with ``(stage_key, human_label)`` -- ``fetching`` -> ``profiling`` ->
-    ``researching`` -> ``refining`` -> ``done`` -- so a caller (the async job endpoint) can stream
-    live progress instead of holding a ~1-2 min HTTP connection. Every stage is also ``logger.info``
-    -ed regardless, so the backend terminal shows progress. A raising hook never breaks the run.
+    ``researching`` -> ``refining`` -> ``generating_prompts`` -> ``done`` -- so a caller (the async
+    job endpoint) can stream live progress instead of holding a ~1-2 min HTTP connection. Every stage
+    is also ``logger.info``-ed regardless, so the backend terminal shows progress. A raising hook
+    never breaks the run.
 
     Best-effort and total: a fetch failure drops the grounding, any failed/empty/malformed LLM stage
-    degrades to the best available result (ultimately the domain-heuristic name + ``[]``), and the
-    function never raises -- so onboarding always yields a usable, fully-editable suggestion and
-    never surfaces a 5xx.
+    degrades to the best available result (ultimately the domain-heuristic name + ``[]`` competitors
+    + ``[]`` seed prompts), and the function never raises -- so onboarding always yields a usable,
+    fully-editable suggestion and never surfaces a 5xx.
     """
     clean_domain = domain.strip()
     critic_client = critic if critic is not None else llm
@@ -721,7 +822,18 @@ def suggest_brand_details(
     # (aspirational/up-market players already excluded) -- then a deterministic clean-up backstop.
     chosen = refined if refined else _direct_names(draft)
     competitors = _clean_names(chosen, brand_name=name, cap=_MAX_COMPETITORS)
-    suggestion = BrandSuggestion(name=name, domain=clean_domain, competitors=competitors)
+
+    # Recommend the AI-search seed prompts to measure the brand on, grounded on the profile + the
+    # refined competitors. Runs on the plain (web-search-free) critic client -- one extra Opus call
+    # (~15-30s). Degrades to [] on any failure, so it never blocks onboarding or the competitor set.
+    _emit(on_progress, "generating_prompts")
+    seed_prompts = _suggest_seed_prompts(
+        profile=profile, competitors=competitors, llm=critic_client
+    )
+
+    suggestion = BrandSuggestion(
+        name=name, domain=clean_domain, competitors=competitors, seed_prompts=seed_prompts
+    )
 
     _emit(on_progress, "done")
     return suggestion

@@ -83,6 +83,53 @@ describe("OnboardingWizard", () => {
     }
   });
 
+  it("prefills recommended seed prompts into step 4 on done, and shows the new 'generating prompts' stage", async () => {
+    vi.useFakeTimers();
+    try {
+      // mockApi's done result carries seed_prompts alongside competitors.
+      mockApi();
+
+      render(<OnboardingWizard />);
+      fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: "acme.com" } });
+      fireEvent.click(screen.getByRole("button", { name: /look up/i }));
+
+      // The stepper renders the new "Generating prompts" stage row while the lookup runs.
+      expect(screen.getByText("Generating prompts")).toBeInTheDocument();
+
+      // Drive the poll to completion (profiling -> researching -> done).
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0); // flush the start promise -> register the poll
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500); // -> done
+      });
+
+      // Brand name prefilled + polling stopped.
+      expect(screen.getByDisplayValue("Acme")).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+      // Advance to step 4 (competitors -> integrations -> seed prompts).
+      fireEvent.click(screen.getByRole("button", { name: /next/i })); // -> step 2
+      fireEvent.click(screen.getByRole("button", { name: /next/i })); // -> step 3
+      fireEvent.click(screen.getByRole("button", { name: /next/i })); // -> step 4
+      expect(screen.getByText(/step 4 of 5/i)).toBeInTheDocument();
+
+      // The recommended seed prompts are prefilled and fully editable (removable), like competitors.
+      expect(screen.getByText("best CRM for startups")).toBeInTheDocument();
+      expect(screen.getByText("how do I migrate to a new CRM")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /remove best CRM for startups/i }));
+      expect(screen.queryByText("best CRM for startups")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("falls back to manual entry (no block, no error) when starting the lookup fails", async () => {
     const client = mockApi();
     vi.spyOn(client, "startBrandSuggest").mockRejectedValue(new Error("start boom"));

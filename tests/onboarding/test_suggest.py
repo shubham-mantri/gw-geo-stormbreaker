@@ -20,7 +20,10 @@ from gw_geo.onboarding.suggest import (
     _CRITIQUE_SCHEMA,
     _DRAFT_SCHEMA,
     _PROFILE_SCHEMA,
+    _SEED_PROMPTS_SCHEMA,
     BrandSuggestion,
+    _suggest_seed_prompts,
+    _TargetProfile,
     normalize_url,
     suggest_brand_details,
 )
@@ -54,6 +57,8 @@ def _stage(schema: Any) -> str:
         return "draft"
     if schema is _CRITIQUE_SCHEMA:
         return "critique"
+    if schema is _SEED_PROMPTS_SCHEMA:
+        return "seed_prompts"
     raise AssertionError(f"unexpected schema: {schema!r}")
 
 
@@ -121,7 +126,8 @@ def test_pipeline_runs_three_stages_and_grounds_each_on_the_prior() -> None:
 
     assert out.name == "Acme Robotics"  # name from the profile stage (LLM), not the <title>
     assert out.competitors == ["Beta", "Gamma"]  # final list = the critique's refined output
-    assert llm.calls == ["profile", "draft", "critique"]  # all three stages ran, in order
+    # all four stages ran, in order (seed-prompts is the plain call after the critique)
+    assert llm.calls == ["profile", "draft", "critique", "seed_prompts"]
     assert fetcher.fetched_url == "https://acme.com"  # normalized URL fetched for grounding
     # The page name-hint grounds the profile prompt...
     assert "Acme" in llm.prompts["profile"]
@@ -219,7 +225,8 @@ def test_critique_failure_falls_back_to_draft_direct_names_excluding_aspirationa
     )
     out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
     assert out.competitors == ["Beta", "Gamma"]  # direct-tier only; BigCorp (aspirational) dropped
-    assert llm.calls == ["profile", "draft", "critique"]  # critique was attempted, then failed
+    # critique was attempted then failed; the seed-prompts stage still runs afterward
+    assert llm.calls == ["profile", "draft", "critique", "seed_prompts"]
 
 
 def test_draft_failure_yields_name_but_no_competitors_and_skips_critique() -> None:
@@ -276,21 +283,27 @@ def test_critic_defaults_to_llm_when_omitted() -> None:
     )
     out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)  # no critic
     assert out.competitors == ["Beta", "Gamma"]
-    assert llm.calls == ["profile", "draft", "critique"]  # llm handled the critique too
+    # llm handled the critique + seed-prompts stages too (critic defaults to llm)
+    assert llm.calls == ["profile", "draft", "critique", "seed_prompts"]
 
 
-def test_separate_critic_client_runs_only_the_critique_stage() -> None:
+def test_separate_critic_client_runs_the_plain_critique_and_seed_prompt_stages() -> None:
     research = ScriptedLLM(
         profile={"name": "Acme", "categories": ["CRM"]},
         draft={"competitors": [{"name": "Beta"}]},
     )
-    critic = ScriptedLLM(critique={"competitors": ["Beta", "Gamma"]})
+    critic = ScriptedLLM(
+        critique={"competitors": ["Beta", "Gamma"]},
+        seed_prompts={"prompts": ["best CRM for startups"]},
+    )
     out = suggest_brand_details(
         domain="acme.com", fetcher=FakeFetcher(None), llm=research, critic=critic
     )
     assert out.competitors == ["Beta", "Gamma"]
+    assert out.seed_prompts == ["best CRM for startups"]
     assert research.calls == ["profile", "draft"]  # web-search client: research only
-    assert critic.calls == ["critique"]  # plain client: refine only
+    # plain client: both web-search-free stages (refine + seed-prompt recommendation)
+    assert critic.calls == ["critique", "seed_prompts"]
 
 
 # --- name resolution: profile name wins, else the domain heuristic -----------------------------
@@ -377,7 +390,14 @@ def test_on_progress_receives_each_stage_key_in_order() -> None:
         on_progress=lambda key, label: stages.append((key, label)),
     )
     keys = [key for key, _ in stages]
-    assert keys == ["fetching", "profiling", "researching", "refining", "done"]
+    assert keys == [
+        "fetching",
+        "profiling",
+        "researching",
+        "refining",
+        "generating_prompts",
+        "done",
+    ]
     labels = dict(stages)
     assert labels["researching"] == "Researching competitors across the web"
     assert all(label for label in labels.values())  # every stage carries a human label
@@ -408,15 +428,142 @@ def test_on_progress_hook_raising_never_breaks_the_pipeline() -> None:
     assert out.competitors == ["Beta"]  # pipeline completed despite the hook raising
 
 
-# --- BrandSuggestion shape (unchanged response contract) ---------------------------------------
+# --- BrandSuggestion shape (name + domain + competitors + additive seed_prompts) ---------------
 
 
-def test_brand_suggestion_shape_unchanged() -> None:
+def test_brand_suggestion_shape_carries_seed_prompts() -> None:
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta"]},
+        seed_prompts={"prompts": ["best CRM for startups", "how do I choose a CRM"]},
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    assert isinstance(out, BrandSuggestion)
+    assert out.model_dump() == {
+        "name": "Acme",
+        "domain": "acme.com",
+        "competitors": ["Beta"],
+        "seed_prompts": ["best CRM for startups", "how do I choose a CRM"],
+    }
+
+
+def test_seed_prompts_defaults_to_empty_when_stage_unavailable() -> None:
+    # seed_prompts is additive + optional: an un-scripted (here, failing) stage degrades to [],
+    # and the rest of the suggestion is unaffected.
     llm = ScriptedLLM(
         profile={"name": "Acme", "categories": ["CRM"]},
         draft={"competitors": [{"name": "Beta"}]},
         critique={"competitors": ["Beta"]},
     )
     out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
-    assert isinstance(out, BrandSuggestion)
-    assert out.model_dump() == {"name": "Acme", "domain": "acme.com", "competitors": ["Beta"]}
+    assert out.competitors == ["Beta"]
+    assert out.seed_prompts == []
+
+
+# --- seed prompts: recommend AI-search queries grounded on the profile + competitor set ---------
+
+
+def test_suggest_seed_prompts_returns_parsed_list_grounded_on_profile_and_competitors() -> None:
+    profile = _TargetProfile(
+        name="Acme", categories=["CRM", "sales analytics"], size_segment="SMB, 11-50 employees"
+    )
+    llm = ScriptedLLM(
+        seed_prompts={
+            "prompts": [
+                "best CRM for small teams",
+                "top sales analytics tools for startups",
+                "how do I pick a CRM for a growing sales team",
+            ]
+        }
+    )
+    out = _suggest_seed_prompts(profile=profile, competitors=["Beta", "Gamma"], llm=llm)
+    assert out == [
+        "best CRM for small teams",
+        "top sales analytics tools for startups",
+        "how do I pick a CRM for a growing sales team",
+    ]
+    prompt = llm.prompts["seed_prompts"]
+    # grounded on EVERY product category in the profile...
+    assert "CRM" in prompt and "sales analytics" in prompt
+    # ...and on the competitor set (for comparison-style queries).
+    assert "Beta" in prompt and "Gamma" in prompt
+
+
+def test_suggest_seed_prompts_dedupes_and_caps_at_twelve() -> None:
+    # 13 distinct + 1 case-dupe of the first -> deduped to 13 unique -> capped at 12.
+    raw = [f"best tool number {i}" for i in range(13)] + ["Best Tool Number 0"]
+    llm = ScriptedLLM(seed_prompts={"prompts": raw})
+    out = _suggest_seed_prompts(
+        profile=_TargetProfile(name="Acme", categories=["CRM"], size_segment=None),
+        competitors=[],
+        llm=llm,
+    )
+    assert len(out) == 12  # capped at the 12 max
+    assert len({p.lower() for p in out}) == len(out)  # case-insensitive dupes collapsed
+
+
+def test_suggest_seed_prompts_degrades_to_empty_on_llm_failure() -> None:
+    llm = ScriptedLLM(seed_prompts=RuntimeError("prompt-gen exploded"))
+    out = _suggest_seed_prompts(
+        profile=_TargetProfile(name="Acme", categories=["CRM"], size_segment=None),
+        competitors=["Beta"],
+        llm=llm,
+    )
+    assert out == []  # never raises; the wizard still lets the user type their own
+
+
+def test_suggest_seed_prompts_degrades_to_empty_on_malformed_payload() -> None:
+    for payload in ({}, {"prompts": "nope"}, {"prompts": [1, 2, 3]}, {"other": []}):
+        llm = ScriptedLLM(seed_prompts=payload)
+        out = _suggest_seed_prompts(
+            profile=_TargetProfile(name="Acme", categories=["CRM"], size_segment=None),
+            competitors=[],
+            llm=llm,
+        )
+        assert out == [], payload
+
+
+def test_pipeline_emits_generating_prompts_stage_and_populates_seed_prompts() -> None:
+    # The async job/UI keys off the stage keys, so the new stage's key + order are a contract.
+    fetcher = FakeFetcher(FetchedPage(text="<head><title>Acme</title></head>"))
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM", "billing"]},
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta"]},
+        seed_prompts={"prompts": ["best CRM for startups", "CRM vs spreadsheet for billing"]},
+    )
+    stages: list[tuple[str, str]] = []
+    out = suggest_brand_details(
+        domain="acme.com",
+        fetcher=fetcher,
+        llm=llm,
+        on_progress=lambda key, label: stages.append((key, label)),
+    )
+    keys = [key for key, _ in stages]
+    assert keys == [
+        "fetching",
+        "profiling",
+        "researching",
+        "refining",
+        "generating_prompts",
+        "done",
+    ]
+    assert dict(stages)["generating_prompts"] == "Generating recommended prompts"
+    assert out.seed_prompts == ["best CRM for startups", "CRM vs spreadsheet for billing"]
+    # the seed-prompt stage is grounded on the full profile category set + the refined competitors
+    seed_prompt = llm.prompts["seed_prompts"]
+    assert "CRM" in seed_prompt and "billing" in seed_prompt
+    assert "Beta" in seed_prompt
+
+
+def test_pipeline_seed_prompt_failure_never_breaks_competitor_behavior() -> None:
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}, {"name": "Gamma"}]},
+        critique={"competitors": ["Beta", "Gamma"]},
+        seed_prompts=RuntimeError("prompt-gen exploded"),
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    assert out.competitors == ["Beta", "Gamma"]  # competitor pipeline untouched
+    assert out.seed_prompts == []  # graceful degrade

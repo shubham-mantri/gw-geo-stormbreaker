@@ -28,7 +28,11 @@ class FakeFetcher:
 
 
 class OneShotLLM:
-    """An ``LLMClient`` returning one canned ``{name, competitors}`` dict for every stage."""
+    """An ``LLMClient`` returning one canned ``{name, competitors, prompts}`` dict for every stage.
+
+    The four suggest stages each read the field they need off the shared dict (profile -> ``name``,
+    draft/critique -> ``competitors``, seed-prompts -> ``prompts``), so one fake drives the whole
+    flow end-to-end without a live call."""
 
     def __init__(self, result: dict[str, Any]) -> None:
         self._result = result
@@ -105,7 +109,13 @@ def test_get_unknown_job_returns_none() -> None:
 def test_run_suggest_job_streams_stages_and_finishes_done() -> None:
     store = SuggestJobStore()
     job_id = store.create()
-    llm = OneShotLLM({"name": "Acme", "competitors": [{"name": "Beta"}, {"name": "Gamma"}]})
+    llm = OneShotLLM(
+        {
+            "name": "Acme",
+            "competitors": [{"name": "Beta"}, {"name": "Gamma"}],
+            "prompts": ["best CRM for startups", "how do I choose a CRM"],
+        }
+    )
     run_suggest_job(
         store,
         job_id,
@@ -120,6 +130,8 @@ def test_run_suggest_job_streams_stages_and_finishes_done() -> None:
     assert job.result is not None
     assert job.result.name == "Acme"
     assert job.result.competitors == ["Beta", "Gamma"]
+    # the job result surfaces the recommended seed prompts alongside the competitors
+    assert job.result.seed_prompts == ["best CRM for startups", "how do I choose a CRM"]
 
 
 def test_run_suggest_job_records_error_when_pipeline_raises() -> None:

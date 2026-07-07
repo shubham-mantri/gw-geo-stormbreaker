@@ -149,7 +149,12 @@ const SUGGEST_PROGRESSION: BrandSuggestStatus[] = [
     status: "done",
     stage: "done",
     label: "Done",
-    result: { name: "Acme", domain: "acme.com", competitors: ["Beta"] },
+    result: {
+      name: "Acme",
+      domain: "acme.com",
+      competitors: ["Beta"],
+      seed_prompts: ["best CRM for startups", "how do I migrate to a new CRM"],
+    },
     error: null,
   },
 ];
