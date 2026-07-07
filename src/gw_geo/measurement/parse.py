@@ -5,20 +5,38 @@ Two independently-testable halves, per `docs/trd.md` §5.3:
 - Pure-Python URL handling (`normalize_url`, `domain_of`, `classify_source`) — no I/O, fully
   deterministic, unit-tested directly.
 - LLM-backed mention/sentiment extraction behind the `Extractor` protocol, injected into
-  `parse()` so tests never make a live call (see `StubExtractor` in the test suite). A real
-  Claude JSON-mode implementation (`ClaudeExtractor`) lives here too, but is exercised only via
-  manual/integration use, never by the hermetic unit tests.
+  `parse()` so tests never make a live call (see `StubExtractor` in the test suite). Two real
+  implementations live here, and `common.wiring.build_runtime` selects between them by the same
+  `GEO_LLM_GATEWAY` flag the content path uses:
+
+  * `ClaudeExtractor` -- talks to the Anthropic **Messages API directly** (tool-use / JSON mode);
+    used on the `direct` gateway, unchanged.
+  * `LLMExtractor` -- routes through an injected `content.generate.LLMClient`, so `local_claude`
+    runs the extraction on the user's local `claude -p` subscription at **$0 API cost** (exactly
+    like the content path) and `portkey` routes through the Portkey gateway.
+
+  Both build the **same** system+user prompt and the **same** JSON schema (the shared module-level
+  helpers below), so they return an identical extraction dict and neither `parse()` nor the
+  downstream `AnswerExtraction` can tell which backend produced it. Neither is exercised by the
+  hermetic unit tests against a live backend -- `LLMExtractor` is driven with a fake `LLMClient`
+  and `ClaudeExtractor` with a mocked transport.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
 from gw_geo.common.models import AnswerExtraction, Brand, ProbeResult, Sentiment, SourceType
+
+if TYPE_CHECKING:
+    # Type-only import: `LLMExtractor` is annotated with the content-side `LLMClient` protocol but
+    # never imports `content` at runtime -- only `common.wiring` (the composition root) wires the
+    # two together, so `measurement` carries no runtime dependency on `content`.
+    from gw_geo.content.generate import LLMClient
 
 # --------------------------------------------------------------------------------------------
 # URL normalization / classification (pure, no I/O)
@@ -132,6 +150,65 @@ class Extractor(Protocol):
         ...
 
 
+# --------------------------------------------------------------------------------------------
+# Shared extraction contract (system prompt / user-prompt builder / JSON schema)
+#
+# Factored out of `ClaudeExtractor` so it and `LLMExtractor` can't drift: both build the same
+# user prompt and force the same schema, so they return the identical extraction dict. The system
+# prompt is used only on the `LLMExtractor` (`LLMClient`) path -- the direct-Anthropic
+# `ClaudeExtractor` carries its instruction in the user turn and sends no `system` field, exactly
+# as it did in M0 (byte-for-byte). This mirrors the established pattern in
+# `content.guardrails.claims.LLMClaimExtractor` (its `_CLAIMS_SYSTEM` / `_prompt` / `_input_schema`).
+# --------------------------------------------------------------------------------------------
+
+_EXTRACTION_SYSTEM_PROMPT = (
+    "You are a measurement analyst for a brand-visibility (GEO) tool. Given a single answer "
+    "produced by an AI search engine, extract, as structured data, whether and how a specific "
+    "brand appears in it: whether it is mentioned, its 1-indexed rank among named options (null "
+    "if absent or not applicable), the overall sentiment toward it, and which of its known "
+    "competitors appear. Report only what the answer text supports; do not infer beyond it. "
+    "Respond only via the requested tool call / structured output."
+)
+
+
+def _build_extraction_prompt(answer_text: str, brand: Brand) -> str:
+    """The user-turn prompt for the extraction task (shared by both `Extractor` backends)."""
+    competitors = ", ".join(brand.competitors) or "none listed"
+    return (
+        f"Brand: {brand.name} ({brand.domain}). Known competitors: {competitors}.\n\n"
+        f"Answer text from an AI search engine:\n---\n{answer_text}\n---\n\n"
+        "Using the record_extraction tool, report whether the brand is mentioned, its "
+        "1-indexed rank position among named options (null if not applicable/absent), the "
+        "overall sentiment toward the brand (positive, neutral, negative, or comparison if "
+        "it's mainly a head-to-head comparison), and which of its competitors are present."
+    )
+
+
+def _extraction_schema() -> dict[str, Any]:
+    """The JSON schema the extraction dict conforms to.
+
+    Used as the tool `input_schema` on the direct path (`ClaudeExtractor`) and as the
+    `LLMClient.complete(schema=...)` hint on the gateway path (`LLMExtractor`), so both backends
+    are pinned to the identical `{brand_mentioned, position, sentiment, competitors_present}` shape.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "brand_mentioned": {"type": "boolean"},
+            "position": {
+                "type": ["integer", "null"],
+                "description": "1-indexed rank among named options, null if absent.",
+            },
+            "sentiment": {
+                "type": "string",
+                "enum": [s.value for s in Sentiment],
+            },
+            "competitors_present": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["brand_mentioned", "position", "sentiment", "competitors_present"],
+    }
+
+
 class ClaudeExtractor:
     """`Extractor` backed by the Claude Messages API in tool-use (JSON-mode) mode.
 
@@ -177,7 +254,9 @@ class ClaudeExtractor:
                 "max_tokens": 1024,
                 "tools": [self._tool_schema()],
                 "tool_choice": {"type": "tool", "name": self._TOOL_NAME},
-                "messages": [{"role": "user", "content": self._prompt(answer_text, brand)}],
+                "messages": [
+                    {"role": "user", "content": _build_extraction_prompt(answer_text, brand)}
+                ],
             },
             timeout=self._timeout,
         )
@@ -195,34 +274,34 @@ class ClaudeExtractor:
         return {
             "name": self._TOOL_NAME,
             "description": "Record the structured extraction for an AI-engine answer.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "brand_mentioned": {"type": "boolean"},
-                    "position": {
-                        "type": ["integer", "null"],
-                        "description": "1-indexed rank among named options, null if absent.",
-                    },
-                    "sentiment": {
-                        "type": "string",
-                        "enum": [s.value for s in Sentiment],
-                    },
-                    "competitors_present": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["brand_mentioned", "position", "sentiment", "competitors_present"],
-            },
+            "input_schema": _extraction_schema(),
         }
 
-    @staticmethod
-    def _prompt(answer_text: str, brand: Brand) -> str:
-        competitors = ", ".join(brand.competitors) or "none listed"
-        return (
-            f"Brand: {brand.name} ({brand.domain}). Known competitors: {competitors}.\n\n"
-            f"Answer text from an AI search engine:\n---\n{answer_text}\n---\n\n"
-            "Using the record_extraction tool, report whether the brand is mentioned, its "
-            "1-indexed rank position among named options (null if not applicable/absent), the "
-            "overall sentiment toward the brand (positive, neutral, negative, or comparison if "
-            "it's mainly a head-to-head comparison), and which of its competitors are present."
+
+class LLMExtractor:
+    """`Extractor` routed through the content-side `LLMClient` gateway (`content.generate`).
+
+    Constructed with an injected `LLMClient` -- whatever `content.gateway.build_llm_client` selects
+    from `GEO_LLM_GATEWAY` -- so the same flag that routes content generation also routes
+    measurement extraction: with `local_claude` the client is `LocalClaudeCliClient`, so extraction
+    runs on the user's local `claude -p` subscription at **$0 API cost** exactly like the content
+    path; with `portkey` it routes through the Portkey gateway.
+
+    `extract` builds the same system prompt, user prompt, and JSON schema as `ClaudeExtractor` (via
+    the shared module-level helpers) and returns whatever the `LLMClient` produced under that
+    schema -- the identical `{brand_mentioned, position, sentiment, competitors_present}` dict
+    `ClaudeExtractor` returns, so the runner + `AnswerExtraction` downstream can't tell the backends
+    apart. Mirrors the injected-`LLMClient` seam of `content.guardrails.claims.LLMClaimExtractor`.
+    """
+
+    def __init__(self, llm: LLMClient) -> None:
+        self._llm = llm
+
+    def extract(self, answer_text: str, brand: Brand) -> dict[str, Any]:
+        return self._llm.complete(
+            system=_EXTRACTION_SYSTEM_PROMPT,
+            prompt=_build_extraction_prompt(answer_text, brand),
+            schema=_extraction_schema(),
         )
 
 
