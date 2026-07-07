@@ -50,7 +50,12 @@ class _FakeFetcher:
 
 
 class _FakeLLM:
-    """An `LLMClient` returning a canned structured competitor dict -- no live LLM call."""
+    """An `LLMClient` returning one canned dict for every stage -- no live LLM call.
+
+    The suggest pipeline calls it three times (profile -> draft -> critique); the shared
+    ``{name, competitors:[{name}]}`` shape parses cleanly at each stage (profile reads ``name``,
+    draft/critique read ``competitors``), so a single fake drives the whole flow end-to-end here.
+    """
 
     def __init__(self, result: dict[str, Any]) -> None:
         self._result = result
@@ -62,19 +67,22 @@ class _FakeLLM:
 
 
 def _wire_suggest(
-    client: TestClient, *, page: FetchedPage | None, competitors: list[dict[str, str]]
+    client: TestClient,
+    *,
+    page: FetchedPage | None,
+    competitors: list[dict[str, str]],
+    name: str = "Acme",
 ) -> None:
-    """Point `/brands/suggest`'s injected fetcher+LLM at hermetic fakes (the test seam)."""
-    deps = brands.BrandSuggestDeps(
-        fetcher=_FakeFetcher(page), llm=_FakeLLM({"competitors": competitors})
-    )
+    """Point `/brands/suggest`'s injected fetcher + research/critic LLMs at hermetic fakes."""
+    fake = _FakeLLM({"name": name, "competitors": competitors})
+    deps = brands.BrandSuggestDeps(fetcher=_FakeFetcher(page), llm=fake, critic=fake)
     client.app.dependency_overrides[brands.get_brand_suggest_deps] = lambda: deps
 
 
 def test_suggest_prefills_name_and_competitors(
     app_client: TestClient, editor_token: str
 ) -> None:
-    # A title-only page -> name parsed from <title> (boilerplate stripped); competitors from the LLM.
+    # name comes from the profile stage (LLM); competitors are the critique's refined list.
     _wire_suggest(
         app_client,
         page=FetchedPage(text="<head><title>Acme | The best CRM</title></head>"),

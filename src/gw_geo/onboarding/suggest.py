@@ -1,34 +1,49 @@
 """Domain-first onboarding auto-fill (M5): from a bare domain, propose the brand's **name** and a
-list of likely **competitors** in one LLM call -- both pre-filled and fully editable by the user in
-the onboarding wizard.
+grounded, self-critiqued list of likely **competitors** -- both pre-filled and fully editable by the
+user in the onboarding wizard.
 
-Two injected seams, so the whole module is hermetic and makes **no** network/LLM call under test:
+A real test (respectmanufacturing.com) exposed the failure modes of a single ungrounded LLM call:
+duplicate acquired entities (e.g. Nutricap Labs == NutraScience Labs, acquired 2015), scale/segment
+mismatches (enterprise-scale contract manufacturers listed against an 11-50-employee SMB shop), and
+missing product categories (only the dominant line, ignoring the target's cosmetics/skincare/OTC
+lines). This module answers with a **three-stage pipeline** instead:
 
-- ``fetcher: PageFetcher`` -- the ranking crawler's fetch seam (:mod:`gw_geo.ranking.fetch`). The
-  production wiring injects the SSRF-guarded :class:`~gw_geo.ranking.fetch.HttpxPageFetcher`, so this
-  module never opens its own socket and inherits that guard; tests inject a dict/markup-backed fake.
-  Its only role here is to surface a *name hint* (a parsed ``<title>``/``og:site_name``/JSON-LD name,
-  or a bounded snippet of the page's visible text) that is fed into the LLM prompt.
-- ``llm: LLMClient`` -- the content engine's generation seam (:mod:`gw_geo.content.generate`), reused
-  verbatim so this call goes through the same flag-selected backend the content pipeline uses
-  (local Claude by default, else Portkey/direct); tests inject a canned fake.
+  (a) **Target profile** -- from the fetched page text (and, when the client can search the web, a
+      brief current lookup) derive a compact profile: the brand name, the FULL set of product
+      categories the target operates in, and size/segment hints (employee band, HQ, SMB vs
+      enterprise). This is the grounding for the next two stages.
+  (b) **Draft (web-search grounded)** -- ask for real, current competitors that match the target's
+      size tier + customer segment, cover *every* category in the profile, are real companies
+      (no fabrication), and carry a reason + size/segment tag + source. The prompt instructs the
+      model to dedupe by ultimate parent (recognizing acquisitions/renames) and to bucket clearly
+      larger-scale players as ``aspirational`` rather than direct.
+  (c) **Critique -> refine** -- a second (fast, web-search-free) pass that reviews the draft against
+      the profile: removes duplicates / renamed-or-acquired entities (keeping the survivor), drops
+      or demotes scale/segment mismatches, and ensures every product category is represented
+      (adding a real competitor for any uncovered one). Returns the final ordered, deduped names.
 
-The LLM returns ``{name, competitors}``: it derives the brand name from the **domain** (refined by
-the page hint when available), which is more accurate than a visible-text parse -- in prod the
-fetched page is stripped to visible text, so the ``<title>``/JSON-LD parsers don't fire and a
-markup-only name resolver would always fall to the crude domain heuristic. That heuristic
-(:func:`_name_from_domain`) is used **only** when the LLM's name comes back empty.
+Two injected seams keep the module hermetic (no network/LLM call under test):
 
-Both suggestions are *best-effort and non-fatal*: a fetch failure just drops the hint, and any LLM
-failure/empty/malformed response yields the domain-heuristic name and ``[]`` competitors --
-onboarding must always proceed to manual entry, never raise (PRD: white-hat, no fabricated claims --
-these are grounded suggestions the user edits, not asserted facts).
+- ``fetcher: PageFetcher`` -- the ranking crawler's SSRF-guarded fetch seam
+  (:mod:`gw_geo.ranking.fetch`); tests inject a dict/markup-backed fake. It surfaces the page's
+  visible text + a name hint that ground stage (a).
+- ``llm: LLMClient`` / ``critic: LLMClient`` -- the content engine's generation seam
+  (:mod:`gw_geo.content.generate`), flag-selected in :mod:`gw_geo.content.gateway`. ``llm`` runs the
+  research/draft stages (web-search-enabled on the local-Claude gateway); ``critic`` runs the
+  refine stage (plain, no web search). Tests inject canned fakes; when ``critic`` is omitted the
+  refine pass reuses ``llm``.
+
+Every stage degrades gracefully and **never raises**: a failed fetch just drops the grounding, any
+failed/empty/malformed LLM reply falls back to the best available result (ultimately the domain
+heuristic name + an empty competitor list, i.e. onboarding proceeds to manual entry). White-hat,
+PRD NG1: these are grounded suggestions the user edits, never fabricated asserted facts.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -38,11 +53,19 @@ from pydantic import BaseModel, Field
 from gw_geo.content.generate import LLMClient
 from gw_geo.ranking.fetch import PageFetcher
 
-# Up to ~6 competitor suggestions (ui-spec onboarding: a short, editable seed list, not a directory).
-_MAX_COMPETITORS = 6
+# Final competitor cap (ui-spec onboarding: a short, editable seed list, not a directory). The
+# critique is asked to cap at this too; the deterministic clean-up below enforces it as a backstop.
+_MAX_COMPETITORS = 8
+
+# How many raw candidates the draft may propose before the critique trims them to the final set.
+_DRAFT_CANDIDATES = 12
 
 # Cap on the page-derived name hint fed into the prompt -- a bounded snippet, never the whole page.
 _HINT_MAX_CHARS = 400
+
+# Larger cap for the visible-text excerpt that grounds the profile stage (categories + size cues
+# live deeper in the page than the title), still bounded so the prompt stays small.
+_PAGE_MAX_CHARS = 2000
 
 # schema.org `@type`s we read a brand `name` off, in priority order (Organization before WebSite).
 _ORG_TYPES = frozenset({"Organization"})
@@ -56,51 +79,151 @@ _TITLE_SEP_RE = re.compile(r"\s+[|–—·»:\-]\s+")
 _SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
-# --- structured-output contract for the brand-suggestion tool call ---------------------------
+# --- structured-output contracts for each pipeline stage --------------------------------------
+#
+# Free-form-friendly object schemas (same forced-tool-call pattern `content.generate` uses, which
+# Portkey maps to lenient provider tool-use, and the local-Claude path rides via `--json-schema`).
+# The three are distinct objects so a fake `LLMClient` can dispatch on `schema is _X_SCHEMA`.
 
-# Free-form-friendly object schema (same forced-tool-call pattern `content.generate` uses, which
-# Portkey maps to lenient provider tool-use -- see `PortkeyLLMClient`): the brand `name` plus a
-# list of competitor {name, domain?}. The same schema rides the local-Claude path via `--json-schema`.
-_BRAND_SCHEMA: dict[str, Any] = {
+# (a) Target profile: name + the FULL category set + a size/segment hint.
+_PROFILE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "name": {
-            "type": "string",
-            "description": "The brand/company's proper name (as it writes it), derived from the "
-            "domain and refined by the page hint when one is given.",
+        "name": {"type": "string", "description": "The company/brand's proper name."},
+        "categories": {
+            "type": "array",
+            "description": "EVERY distinct product/service category the company operates in "
+            "(e.g. supplements AND cosmetics AND skincare AND OTC topicals -- not just the "
+            "dominant line).",
+            "items": {"type": "string"},
         },
+        "size_segment": {
+            "type": "string",
+            "description": "Size & customer-segment hints: employee band, HQ, and whether it "
+            "serves SMB vs mid-market vs enterprise customers.",
+        },
+    },
+    "required": ["name", "categories"],
+}
+
+# (b) Draft: rich competitor candidates carrying the metadata the critique reasons over.
+_DRAFT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
         "competitors": {
             "type": "array",
-            "description": "Real, well-known companies that compete with the brand in its market.",
+            "description": "Real, currently-operating competitors -- never invent a company.",
             "items": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "The competitor company's name."},
-                    "domain": {
+                    "reason": {"type": "string", "description": "One line: why it competes."},
+                    "segment": {
                         "type": "string",
-                        "description": "Its primary website domain, if known (else omit).",
+                        "description": "Its size/segment tag (e.g. 'SMB contract manufacturer').",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Which of the target's product categories it covers.",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "A source URL backing the claim, if known (else omit).",
+                    },
+                    "tier": {
+                        "type": "string",
+                        "enum": ["direct", "aspirational"],
+                        "description": "'direct' matches the target's size+segment; 'aspirational' "
+                        "is a clearly larger / up-market player.",
                     },
                 },
                 "required": ["name"],
             },
         },
     },
-    "required": ["name", "competitors"],
+    "required": ["competitors"],
 }
 
-_BRAND_SYSTEM = (
-    "You identify the company/brand behind a website domain and its real, well-known competitors. "
-    "Derive the brand's proper name from the domain (using any page hint only to refine it), and "
-    "return only plausible, genuinely-existing competitors in the same market -- never invent or "
-    "fabricate a company. When unsure, return fewer rather than guessing. Respond only via the "
-    "requested tool call."
+# (c) Critique: the final, ordered, deduped competitor NAMES (+ optional coverage note).
+_CRITIQUE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "competitors": {
+            "type": "array",
+            "description": "Final ordered competitor company names, strongest direct match first.",
+            "items": {"type": "string"},
+        },
+        "coverage_notes": {
+            "type": "string",
+            "description": "Optional note on product-category coverage / any category left "
+            "unrepresented.",
+        },
+    },
+    "required": ["competitors"],
+}
+
+_PROFILE_SYSTEM = (
+    "You research and profile the company behind a website so its competitive set can be scoped "
+    "accurately. Using the page text provided -- and, if you can search the web, a brief current "
+    "lookup -- determine the company's proper name; the FULL set of distinct product categories it "
+    "operates in (list every one, e.g. supplements AND cosmetics AND skincare AND OTC topicals, "
+    "not just its dominant line); and its size/segment (employee band, HQ if known, and whether it "
+    "serves SMB, mid-market, or enterprise customers). Report only what the page and current, "
+    "verifiable sources support -- never invent a category or inflate size. Respond only via the "
+    "requested tool call, as the exact JSON object described."
+)
+
+_DRAFT_SYSTEM = (
+    "You list a company's REAL, CURRENT competitors as a competitive-analysis seed. Given a target "
+    "profile (name, product categories, size/segment), return genuinely-existing companies that "
+    "(1) match the target's size tier and customer segment, (2) together cover EVERY product "
+    "category in the profile -- not just the dominant one -- and (3) are real (never invent or "
+    "fabricate a company; when unsure, return fewer). For each, give a one-line reason, a "
+    "size/segment tag, which product category it covers, and a source URL if you know one. "
+    "Deduplicate by ultimate parent company: if two names are the same business (an acquisition or "
+    "rename), list ONLY the surviving entity. Put clearly larger-scale or up-market players in the "
+    "'aspirational' tier, not the direct set. Respond only via the requested tool call, as the "
+    "exact JSON object described."
+)
+
+_CRITIQUE_SYSTEM = (
+    "You are a rigorous reviewer refining a draft competitor list against a target profile. Return "
+    "the final, ordered competitor set after: removing duplicates and any renamed or acquired "
+    "entity (keep ONLY the surviving company); dropping or demoting competitors whose scale or "
+    "customer segment does not match the target (a much larger / enterprise vendor is not a direct "
+    "competitor of an SMB shop); and ensuring EVERY product category in the profile is represented "
+    "-- if the draft leaves a category uncovered, add a real company that covers it. Never "
+    "fabricate a company. Order the strongest direct matches first and cap the list at "
+    f"{_MAX_COMPETITORS}. Respond only via the requested tool call, as the exact JSON object "
+    "described."
 )
 
 
+@dataclass(frozen=True)
+class _TargetProfile:
+    """The stage-(a) grounding: brand name, the full product-category set, and a size/segment hint."""
+
+    name: str | None
+    categories: list[str]
+    size_segment: str | None
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """A stage-(b) draft competitor with the metadata the critique reasons over."""
+
+    name: str
+    reason: str | None
+    segment: str | None
+    category: str | None
+    source: str | None
+    tier: str  # "direct" | "aspirational"
+
+
 class BrandSuggestion(BaseModel):
-    """The onboarding auto-fill: a proposed brand ``name`` (from the site), the echoed ``domain``,
-    and up to ~6 suggested ``competitors`` (names). Every field is a *suggestion* the user edits in
-    the wizard -- nothing here is persisted until the user submits ``POST /brands``.
+    """The onboarding auto-fill: a proposed brand ``name`` (from the site + web research), the
+    echoed ``domain``, and up to ~8 suggested ``competitors`` (names). Every field is a *suggestion*
+    the user edits in the wizard -- nothing here is persisted until the user submits ``POST /brands``.
     """
 
     name: str
@@ -227,132 +350,321 @@ def _name_from_domain(domain: str) -> str:
     return " ".join(word.capitalize() for word in words) if words else host
 
 
-def _text_snippet(text: str) -> str | None:
-    """A whitespace-collapsed, length-capped snippet of the page's visible text (or ``None``)."""
-    snippet = " ".join(text.split())[:_HINT_MAX_CHARS]
+def _text_snippet(text: str, max_chars: int) -> str | None:
+    """A whitespace-collapsed, length-capped snippet of the page's text (or ``None`` if empty)."""
+    snippet = " ".join(text.split())[:max_chars]
     return snippet or None
 
 
-def _fetch_name_hint(*, domain: str, fetcher: PageFetcher) -> str | None:
-    """Fetch the site (never raising) and derive a brand-name *hint* for the LLM prompt.
+def _fetch_context(*, domain: str, fetcher: PageFetcher) -> tuple[str | None, str | None]:
+    """Fetch the site once (never raising) and derive ``(name_hint, page_text)`` for the profile.
 
-    Prefers a parsed ``<title>``/``og:site_name``/JSON-LD name (fires when the fetcher surfaces raw
-    markup, as fakes do); on the real, visible-text-only fetch that yields nothing, so it falls to a
-    bounded snippet of the visible text. ``None`` when the page can't be fetched or is empty -- the
-    LLM then derives the name from the domain alone.
+    ``name_hint`` prefers a parsed ``<title>``/``og:site_name``/JSON-LD name (fires when the fetcher
+    surfaces raw markup, as fakes do), else a short visible-text snippet; ``page_text`` is a larger
+    visible-text excerpt that grounds the category/size profiling. Both are ``None`` when the page
+    can't be fetched or is empty -- the profile then leans on the domain (and web search, if any).
     """
     try:
         page = fetcher.fetch(normalize_url(domain))
     except Exception:
-        return None  # a broken/blocked/timed-out fetch must never break onboarding
+        return None, None  # a broken/blocked/timed-out fetch must never break onboarding
     if page is None or not page.text:
-        return None
-    return _name_from_markup(page.text) or _text_snippet(page.text)
+        return None, None
+    name_hint = _name_from_markup(page.text) or _text_snippet(page.text, _HINT_MAX_CHARS)
+    page_text = _text_snippet(page.text, _PAGE_MAX_CHARS)
+    return name_hint, page_text
 
 
-# --- competitor suggestion (one structured LLM tool call; empty on any failure) --------------
+# --- stage (a): target profile ----------------------------------------------------------------
 
 
-def _build_brand_prompt(*, domain: str, name_hint: str | None) -> str:
+def _build_profile_prompt(*, domain: str, name_hint: str | None, page_text: str | None) -> str:
     lines = [
         f"Website domain: {domain}.",
-        "Identify the company/brand that operates this website, and up to "
-        f"{_MAX_COMPETITORS} real companies that directly compete with it in its market.",
+        "Profile the company that operates this website, for a competitor-analysis seed.",
     ]
     if name_hint:
         lines.append(
-            "Hint read off the site's page (may be noisy boilerplate -- use only if it helps you "
-            f"name the brand): {name_hint!r}."
+            "Name hint read off the site (may be noisy boilerplate -- use only if it helps): "
+            f"{name_hint!r}."
         )
+    if page_text:
+        lines.append(f"Visible page text (excerpt):\n{page_text}")
     lines.append(
-        "Return the brand's proper name (as the company writes it -- derive it from the domain, "
-        "refined by the hint if useful), and for each competitor its name and, if you know it, its "
-        "primary website domain. Only include real, plausible competitors; omit any you are unsure "
-        "about."
+        "Return the company's proper 'name', the full list of product 'categories' it operates in "
+        "(every distinct one, not just the main line), and a 'size_segment' hint (employee band / "
+        "HQ / SMB vs enterprise). If you can search the web, verify against current sources. Report "
+        "only what is supported."
     )
     return "\n".join(lines)
 
 
-def _parse_name(result: Any) -> str | None:
-    """The trimmed brand ``name`` from the LLM tool-call result, or ``None`` if absent/blank/malformed.
+def _parse_profile(result: Any) -> _TargetProfile | None:
+    """Map a stage-(a) tool-call result to a :class:`_TargetProfile`, or ``None`` if unusable.
 
-    The caller falls back to the domain heuristic on ``None`` -- so a missing name never breaks
-    onboarding.
+    Best-effort: a missing/blank field just drops out (name -> ``None``, categories -> ``[]``); the
+    caller degrades accordingly. Categories are trimmed, blank-dropped, and case-insensitively
+    deduped while preserving order.
     """
     if not isinstance(result, dict):
         return None
-    name = result.get("name")
-    if isinstance(name, str) and name.strip():
-        return name.strip()
-    return None
+    raw_name = result.get("name")
+    name = raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None
+    raw_seg = result.get("size_segment")
+    size_segment = raw_seg.strip() if isinstance(raw_seg, str) and raw_seg.strip() else None
+    categories = _clean_names(_str_list(result.get("categories")), brand_name="", cap=32)
+    return _TargetProfile(name=name, categories=categories, size_segment=size_segment)
 
 
-def _parse_competitors(result: Any, *, brand_name: str) -> list[str]:
-    """Map the LLM tool-call result to a clean ``list[str]`` of competitor names.
+# --- stage (b): web-search-grounded draft ------------------------------------------------------
 
-    Accepts either ``{"name": ..., "domain": ...}`` items or bare strings; drops blanks, the brand
-    itself, and case-insensitive duplicates; caps at :data:`_MAX_COMPETITORS`. Any shape it doesn't
-    understand yields ``[]`` (the caller treats that identically to an LLM failure).
+
+def _profile_lines(profile: _TargetProfile | None) -> list[str]:
+    """The shared profile summary injected into the draft + critique prompts (empty if no profile)."""
+    if profile is None:
+        return ["(No profile available -- infer the market from the domain.)"]
+    lines: list[str] = []
+    if profile.name:
+        lines.append(f"Target company: {profile.name}.")
+    if profile.categories:
+        lines.append(
+            "Product categories the target operates in (cover EVERY one): "
+            + ", ".join(profile.categories)
+            + "."
+        )
+    if profile.size_segment:
+        lines.append(f"Target size/segment: {profile.size_segment}.")
+    return lines or ["(Profile was empty -- infer the market from the domain.)"]
+
+
+def _build_draft_prompt(*, domain: str, profile: _TargetProfile | None) -> str:
+    lines = [f"Target company domain: {domain}."]
+    lines.extend(_profile_lines(profile))
+    lines.append(
+        f"List up to {_DRAFT_CANDIDATES} real, CURRENT competitors as 'competitors'. For each give "
+        "its name, a one-line reason, a size/segment tag ('segment'), which target 'category' it "
+        "covers, a 'source' URL if known, and a 'tier' ('direct' if it matches the target's size "
+        "and segment, 'aspirational' if clearly larger / up-market). Cover EVERY product category "
+        "above. Dedupe by ultimate parent -- list only the surviving entity of any "
+        "acquisition/rename. Never invent a company."
+    )
+    return "\n".join(lines)
+
+
+def _parse_draft(result: Any) -> list[_Candidate]:
+    """Map a stage-(b) tool-call result to a list of :class:`_Candidate`, dropping nameless items.
+
+    Accepts ``{"name", "reason"?, "segment"?, "category"?, "source"?, "tier"?}`` items or bare
+    strings (treated as a direct-tier name). ``tier`` defaults to ``"direct"`` when absent/invalid,
+    so an un-bucketed candidate is kept in the direct set rather than silently demoted. Any shape it
+    doesn't understand yields ``[]`` (the caller treats that like a failed draft).
     """
     if not isinstance(result, dict):
         return []
     raw = result.get("competitors")
     if not isinstance(raw, list):
         return []
+    candidates: list[_Candidate] = []
+    for item in raw:
+        if isinstance(item, str):
+            name = item.strip()
+            if name:
+                candidates.append(_Candidate(name, None, None, None, None, "direct"))
+            continue
+        if not isinstance(item, dict):
+            continue
+        raw_name = item.get("name")
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            continue
+        tier = item.get("tier")
+        candidates.append(
+            _Candidate(
+                name=raw_name.strip(),
+                reason=_opt_str(item.get("reason")),
+                segment=_opt_str(item.get("segment")),
+                category=_opt_str(item.get("category")),
+                source=_opt_str(item.get("source")),
+                tier="aspirational" if tier == "aspirational" else "direct",
+            )
+        )
+    return candidates
 
+
+def _direct_names(draft: list[_Candidate]) -> list[str]:
+    """The draft's direct-tier competitor names -- the graceful fallback when the critique fails.
+
+    Excludes ``aspirational`` (clearly-larger) players, so even without the critique the final set
+    doesn't include an obvious scale mismatch.
+    """
+    return [c.name for c in draft if c.tier != "aspirational"]
+
+
+# --- stage (c): critique -> refine -------------------------------------------------------------
+
+
+def _build_critique_prompt(*, domain: str, profile: _TargetProfile | None, draft: list[_Candidate]) -> str:
+    lines = [f"Target company domain: {domain}."]
+    lines.extend(_profile_lines(profile))
+    lines.append("Draft competitor list to review:")
+    for cand in draft:
+        parts = [f"tier={cand.tier}"]
+        if cand.segment:
+            parts.append(f"segment={cand.segment}")
+        if cand.category:
+            parts.append(f"category={cand.category}")
+        suffix = f" -- {cand.reason}" if cand.reason else ""
+        lines.append(f"- {cand.name} [{'; '.join(parts)}]{suffix}")
+    lines.append(
+        f"Return the final 'competitors' (ordered names, strongest direct match first, max "
+        f"{_MAX_COMPETITORS}) after: removing duplicates and any renamed/acquired entity (keep the "
+        "surviving company); dropping or demoting competitors whose scale/segment does not match "
+        "the target; and ensuring every product category above is represented -- add a real "
+        "company for any uncovered category. Optionally add 'coverage_notes'. Never fabricate."
+    )
+    return "\n".join(lines)
+
+
+def _parse_critique_names(result: Any) -> list[str]:
+    """The final ordered competitor names from a stage-(c) result (accepts str or ``{name}`` items)."""
+    if not isinstance(result, dict):
+        return []
+    return _str_list(result.get("competitors"))
+
+
+# --- shared helpers ---------------------------------------------------------------------------
+
+
+def _opt_str(value: Any) -> str | None:
+    """A trimmed non-empty string, or ``None``."""
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _str_list(raw: Any) -> list[str]:
+    """Flatten a list of str / ``{"name": str}`` items to trimmed non-empty names (order preserved)."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            candidate = item.strip()
+        elif isinstance(item, dict):
+            name = item.get("name")
+            candidate = name.strip() if isinstance(name, str) else ""
+        else:
+            candidate = ""
+        if candidate:
+            out.append(candidate)
+    return out
+
+
+def _clean_names(names: list[str], *, brand_name: str, cap: int) -> list[str]:
+    """Deterministic backstop: drop blanks, the brand itself, and case-insensitive dupes; cap length.
+
+    This runs on whatever the LLM stages return, so even a stage that leaks a duplicate or the brand
+    name yields a clean list. (Parent-company dedupe -- Nutricap == NutraScience -- needs the LLM's
+    world knowledge and is done in the prompts; this only catches exact/case-insensitive repeats.)
+    """
     self_key = brand_name.strip().lower()
     seen: set[str] = set()
-    names: list[str] = []
-    for item in raw:
-        if isinstance(item, dict):
-            candidate = item.get("name")
-        elif isinstance(item, str):
-            candidate = item
-        else:
-            candidate = None
-        if not isinstance(candidate, str):
-            continue
+    out: list[str] = []
+    for candidate in names:
         candidate = candidate.strip()
         key = candidate.lower()
-        if not candidate or key == self_key or key in seen:
+        if not candidate or (self_key and key == self_key) or key in seen:
             continue
         seen.add(key)
-        names.append(candidate)
-        if len(names) >= _MAX_COMPETITORS:
+        out.append(candidate)
+        if len(out) >= cap:
             break
-    return names
+    return out
 
 
-def _call_brand_llm(
-    *, domain: str, name_hint: str | None, llm: LLMClient
-) -> dict[str, Any] | None:
-    """One structured tool-call for ``{name, competitors}``; ``None`` on any failure (never raises)."""
+# --- pipeline stage runners (each total: catches every failure, returns a safe default) --------
+
+
+def _run_profile(
+    *, domain: str, name_hint: str | None, page_text: str | None, llm: LLMClient
+) -> _TargetProfile | None:
+    """Stage (a): one web-search-grounded profiling call; ``None`` on any failure (never raises)."""
     try:
-        return llm.complete(
-            system=_BRAND_SYSTEM,
-            prompt=_build_brand_prompt(domain=domain, name_hint=name_hint),
-            schema=_BRAND_SCHEMA,
+        result = llm.complete(
+            system=_PROFILE_SYSTEM,
+            prompt=_build_profile_prompt(domain=domain, name_hint=name_hint, page_text=page_text),
+            schema=_PROFILE_SCHEMA,
         )
     except Exception:
-        return None  # a failed/rate-limited/unconfigured LLM must never break onboarding
+        return None
+    return _parse_profile(result)
+
+
+def _run_draft(*, domain: str, profile: _TargetProfile | None, llm: LLMClient) -> list[_Candidate]:
+    """Stage (b): one web-search-grounded draft call; ``[]`` on any failure (never raises)."""
+    try:
+        result = llm.complete(
+            system=_DRAFT_SYSTEM,
+            prompt=_build_draft_prompt(domain=domain, profile=profile),
+            schema=_DRAFT_SCHEMA,
+        )
+    except Exception:
+        return []
+    return _parse_draft(result)
+
+
+def _run_critique(
+    *, domain: str, profile: _TargetProfile | None, draft: list[_Candidate], critic: LLMClient
+) -> list[str]:
+    """Stage (c): one refine call over the draft; ``[]`` on any failure (never raises).
+
+    Skipped (``[]``) when the draft is empty -- there is nothing to refine and the caller degrades
+    to no competitors, matching the total-failure behavior.
+    """
+    if not draft:
+        return []
+    try:
+        result = critic.complete(
+            system=_CRITIQUE_SYSTEM,
+            prompt=_build_critique_prompt(domain=domain, profile=profile, draft=draft),
+            schema=_CRITIQUE_SCHEMA,
+        )
+    except Exception:
+        return []
+    return _parse_critique_names(result)
 
 
 def suggest_brand_details(
-    *, domain: str, fetcher: PageFetcher, llm: LLMClient
+    *, domain: str, fetcher: PageFetcher, llm: LLMClient, critic: LLMClient | None = None
 ) -> BrandSuggestion:
-    """Propose a brand ``name`` + ``competitors`` for a bare ``domain`` via one LLM tool-call.
+    """Propose a brand ``name`` + grounded, self-critiqued ``competitors`` for a bare ``domain``.
 
-    The LLM derives the name from the domain (refined by a page-title/text hint when the fetch
-    surfaces one) and lists competitors. Best-effort and total: a fetch failure just drops the hint,
-    and any LLM failure/empty name degrades to the domain heuristic with no competitors -- so the
-    caller (``POST /brands/suggest``) always returns a usable, fully-editable suggestion and never
-    surfaces a 5xx during onboarding.
+    Runs the three-stage pipeline -- profile (a) -> web-search-grounded draft (b) -> critique/refine
+    (c) -- on the injected clients. ``llm`` drives the research/draft stages (web-search-enabled on
+    the local-Claude gateway); ``critic`` drives the (web-search-free) refine stage, defaulting to
+    ``llm`` when omitted. The brand name comes from the profile (else the domain heuristic); the
+    competitor list is the critique's refined output (else the draft's direct-tier names), run
+    through a deterministic dedupe/self-exclude/cap backstop.
+
+    Best-effort and total: a fetch failure drops the grounding, any failed/empty/malformed LLM stage
+    degrades to the best available result (ultimately the domain-heuristic name + ``[]``), and the
+    function never raises -- so ``POST /brands/suggest`` always returns a usable, fully-editable
+    suggestion and never surfaces a 5xx during onboarding.
     """
     clean_domain = domain.strip()
-    name_hint = _fetch_name_hint(domain=clean_domain, fetcher=fetcher)
-    result = _call_brand_llm(domain=clean_domain, name_hint=name_hint, llm=llm)
-    name = _parse_name(result) or _name_from_domain(clean_domain)
-    competitors = _parse_competitors(result, brand_name=name)
+    critic_client = critic if critic is not None else llm
+
+    name_hint, page_text = _fetch_context(domain=clean_domain, fetcher=fetcher)
+    profile = _run_profile(
+        domain=clean_domain, name_hint=name_hint, page_text=page_text, llm=llm
+    )
+    draft = _run_draft(domain=clean_domain, profile=profile, llm=llm)
+    refined = _run_critique(
+        domain=clean_domain, profile=profile, draft=draft, critic=critic_client
+    )
+
+    name = (profile.name if profile and profile.name else None) or _name_from_domain(clean_domain)
+    # The critique's refined list wins; if it failed/was empty, fall back to the draft's direct set
+    # (aspirational/up-market players already excluded) -- then a deterministic clean-up backstop.
+    chosen = refined if refined else _direct_names(draft)
+    competitors = _clean_names(chosen, brand_name=name, cap=_MAX_COMPETITORS)
     return BrandSuggestion(name=name, domain=clean_domain, competitors=competitors)
 
 
