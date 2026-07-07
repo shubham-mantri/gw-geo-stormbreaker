@@ -7,7 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # The insecure development defaults that must never reach production. Kept as the single source of
 # truth for both the defaults below and the production fail-fast guard.
-_DEV_JWT_SECRET = "dev-insecure-change-me"
+# >=32 bytes so PyJWT doesn't warn about HMAC-SHA256 key length (RFC 7518 §3.2); still an obvious
+# dev placeholder that the production guard below rejects. Real deployments set GEO_JWT_SECRET.
+_DEV_JWT_SECRET = "dev-insecure-change-me-set-GEO_JWT_SECRET-before-any-non-local-use"
 _DEV_PIXEL_SALT = "dev-salt"
 _PRODUCTION_ENVIRONMENTS = frozenset({"production", "prod"})
 

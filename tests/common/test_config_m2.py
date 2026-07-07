@@ -17,8 +17,9 @@ def test_insecure_defaults_allowed_in_non_production():
     # review fix #3: the dev-default secret/salt are fine outside production (tests + e2e rely on
     # this) -- construction must not raise.
     s = config.Settings()
-    assert s.jwt_secret == "dev-insecure-change-me"
-    assert s.pixel_write_key_salt == "dev-salt"
+    assert s.jwt_secret == config._DEV_JWT_SECRET
+    assert len(s.jwt_secret.encode()) >= 32  # RFC 7518 §3.2 HMAC-SHA256 key length (no PyJWT warning)
+    assert s.pixel_write_key_salt == config._DEV_PIXEL_SALT
 
 
 def test_insecure_jwt_secret_fails_fast_in_production():
