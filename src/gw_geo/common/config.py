@@ -44,6 +44,20 @@ class Settings(BaseSettings):
     account_pool_config_ref: str = ""
     playwright_headless: bool = True
 
+    # M5 LOCAL browser capture (no proxies/cloud/SSM). `capture_backend` selects the CaptureClient
+    # `build_runtime` wires for the Playwright surfaces (google_ai_overviews/chatgpt/grok):
+    #   "none"  -> build NO capturer (DEFAULT): those three surfaces are skipped, so the hermetic
+    #              suite + any API-only run never launch a browser.
+    #   "local" -> `capture.local.LocalCaptureClient` over a persistent Chrome/Chromium profile at
+    #              `local_browser_profile_dir` (the user's OWN logins; run `cli login` once). No
+    #              proxy/account pool -- fetches serialize behind one browser.
+    #   "live"  -> the M1 proxy+account fleet (unchanged; still needs the pool refs above + a
+    #              SecretProvider, and is otherwise reached via those refs).
+    # An injected `build_runtime(..., capture=...)` (tests) always overrides this.
+    capture_backend: str = "none"           # "none" | "local" | "live"
+    local_browser_profile_dir: str = ""     # persistent user-data-dir the user logs in to once
+    local_browser_channel: str = "chrome"   # Playwright channel: "chrome"|"msedge"|"" (bundled)
+
     # M1 drift canary
     drift_threshold: float = 0.2
     drift_sns_topic_arn: str = ""

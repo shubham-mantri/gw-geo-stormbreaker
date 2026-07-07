@@ -49,6 +49,8 @@ from sqlalchemy.orm import Session
 
 from gw_geo.attribution.trigger import run_attribution_reconcile_job
 from gw_geo.billing.trigger import run_billing_close_job
+from gw_geo.capture.live import _SURFACE_START_URLS
+from gw_geo.capture.local import run_login_session
 from gw_geo.common.config import Settings, get_settings
 from gw_geo.common.db import Brand
 from gw_geo.common.models import FeatureVector, SourceType
@@ -62,6 +64,16 @@ from gw_geo.orchestration.reward import run_reward_reconcile_job
 from gw_geo.ranking.model import make_backend
 from gw_geo.ranking.runner import run_ranking
 from gw_geo.seeding.trigger import run_seeding_discovery_job
+
+
+# `login` accepts short, friendly surface names; each maps to the canonical capture start URL
+# (reusing `capture.live._SURFACE_START_URLS`, so login and capture can never point at different
+# URLs for the same surface).
+_LOGIN_START_URLS: dict[str, str] = {
+    "chatgpt": _SURFACE_START_URLS["chatgpt"],
+    "grok": _SURFACE_START_URLS["grok"],
+    "google": _SURFACE_START_URLS["google_ai_overviews"],
+}
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -309,6 +321,23 @@ def _build_parser() -> argparse.ArgumentParser:
     close_billing.add_argument(
         "--period-end", required=True, help="Period end YYYY-MM-DD (exclusive, half-open)"
     )
+
+    login = subparsers.add_parser(
+        "login",
+        help="One-time: open a persistent local browser profile HEADED at a surface so you can "
+        "sign in with your OWN account; cookies persist for later `capture_backend=local` runs",
+    )
+    login.add_argument(
+        "--surface",
+        required=True,
+        choices=sorted(_LOGIN_START_URLS),
+        help="Which surface to sign in to (chatgpt|grok|google)",
+    )
+    login.add_argument(
+        "--profile",
+        default=None,
+        help="Persistent browser profile dir (default: settings.local_browser_profile_dir)",
+    )
     return parser
 
 
@@ -339,6 +368,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_reward_reconcile(args)
     if args.command == "close-billing":
         return _run_close_billing(args)
+    if args.command == "login":
+        return _run_login(args)
     return 1
 
 
@@ -648,6 +679,27 @@ def _run_close_billing(args: argparse.Namespace) -> int:
         period_end=args.period_end,
     )
     print(json.dumps(result, indent=2))
+    return 0
+
+
+def _run_login(args: argparse.Namespace) -> int:
+    """Open the local persistent browser profile HEADED so the user signs in once (M5).
+
+    Resolves the profile dir (`--profile`, else `settings.local_browser_profile_dir`) and channel
+    (`settings.local_browser_channel`, empty -> bundled Chromium) and drives the real browser via
+    `run_login_session`, which blocks until the user closes the window. This is the only CLI path
+    that launches a real browser; `run_login_session` is patched out in the tests. Returns `0`.
+    """
+    settings = get_settings()
+    profile = args.profile or settings.local_browser_profile_dir
+    channel = settings.local_browser_channel or None
+    asyncio.run(
+        run_login_session(
+            user_data_dir=profile,
+            channel=channel,
+            start_url=_LOGIN_START_URLS[args.surface],
+        )
+    )
     return 0
 
 

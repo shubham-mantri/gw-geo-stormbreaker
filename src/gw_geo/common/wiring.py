@@ -19,6 +19,7 @@ from typing import Any
 import boto3  # type: ignore[import-untyped]
 
 from gw_geo.capture.base import CaptureClient
+from gw_geo.capture.local import LocalCaptureClient
 from gw_geo.common.config import Settings
 from gw_geo.measurement.parse import ClaudeExtractor, Extractor
 from gw_geo.measurement.probe import base
@@ -137,6 +138,23 @@ def _build_live_capture(settings: Settings) -> CaptureClient | None:
     return None
 
 
+def _build_local_capture(settings: Settings) -> CaptureClient:
+    """Build the LOCAL persistent-profile capturer (`capture_backend="local"`); no browser yet.
+
+    Constructs a `capture.local.LocalCaptureClient` bound to `local_browser_profile_dir` (the
+    user's own Chrome/Chromium profile, established once via `cli login`), reusing the existing
+    `playwright_headless` flag. Purely a constructor: `LocalCaptureClient` opens the browser lazily
+    on its first `fetch`, so `build_runtime` (and the default suite, which never fetches) launches
+    nothing here. No proxy/account pool and no `SecretProvider` -- that is the deploy-only "live"
+    fleet's concern (`_build_live_capture`), not this local path.
+    """
+    return LocalCaptureClient(
+        user_data_dir=settings.local_browser_profile_dir,
+        channel=settings.local_browser_channel or None,
+        headless=settings.playwright_headless,
+    )
+
+
 def build_runtime(settings: Settings, *, capture: CaptureClient | None = None) -> dict[str, Any]:
     """Build the real (non-test) dependencies from `settings`, registering every engine by config.
 
@@ -185,12 +203,17 @@ def build_runtime(settings: Settings, *, capture: CaptureClient | None = None) -
     if settings.deepseek_api_key and settings.deepseek_enabled:
         _register(DeepSeekAdapter(api_key=settings.deepseek_api_key))
 
-    # Playwright engines: wired to the injected capturer (tests) or the live fleet (deploy). When
-    # no capturer is injected and the fleet pool refs are set, build the deploy-path fleet.
+    # Playwright engines: wired to a `CaptureClient` by precedence --
+    #   1. an injected `capture` (tests / an explicit caller) always wins;
+    #   2. else `capture_backend="local"` -> the LOCAL persistent-profile browser (M5);
+    #   3. else the deploy-path live fleet, built only when its pool refs are set (unchanged).
+    # When none of these yields a capturer, the three surfaces are simply skipped (TRD S7).
     capture_backend = capture
-    fleet_refs_set = bool(settings.proxy_pool_config_ref and settings.account_pool_config_ref)
-    if capture_backend is None and fleet_refs_set:
-        capture_backend = _build_live_capture(settings)
+    if capture_backend is None:
+        if settings.capture_backend == "local":
+            capture_backend = _build_local_capture(settings)
+        elif settings.proxy_pool_config_ref and settings.account_pool_config_ref:
+            capture_backend = _build_live_capture(settings)
     if capture_backend is not None:
         _register(AIOverviewsAdapter(capture_backend))
         _register(ChatGPTAdapter(capture_backend))
