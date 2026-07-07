@@ -15,6 +15,7 @@ can type-check attributes/return values against Playwright's real classes.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +24,12 @@ from gw_geo.capture.proxy_pool import Proxy
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, BrowserContext, Page, Playwright
+
+# A streamed answer's text length jitters by a few characters even after it has effectively
+# settled (trailing whitespace, a cursor glyph, a re-rendered token). Treat two polls whose
+# lengths are within this many characters as "the same length" so that jitter doesn't reset the
+# stability count and stall `_wait_for_answer_stable` until timeout.
+_STABLE_TOLERANCE_CHARS = 16
 
 
 class BrowserSession:
@@ -132,17 +139,50 @@ class BrowserSession:
     ) -> CapturePage:
         """Type `query` into the active surface, submit it, and return the rendered result.
 
-        Default behavior (``wait_for=None``) is unchanged from the live fleet: type, Enter, wait
-        for `networkidle`, capture. When `wait_for` is a selector (the local persistent-profile
-        path passes the answer container for streaming surfaces), additionally wait -- best-effort,
-        bounded by `settle_timeout_ms` -- for that container's text to stop growing before
-        capturing, so a mid-stream fragment isn't captured as the final answer.
+        Types the query, presses Enter, then delegates to `snapshot` to settle and capture. The
+        surface-navigation shape is the live fleet's (type, Enter, settle, capture); the only
+        behavioral change is that `snapshot`'s `networkidle` wait is now best-effort/bounded rather
+        than an unbounded 30s wait that ChatGPT (which holds streaming/telemetry sockets open so
+        `networkidle` never fires) would fail on. When `wait_for` is a selector (the local
+        persistent-profile path passes the answer container for streaming surfaces), `snapshot`
+        additionally waits -- best-effort, bounded by `settle_timeout_ms` -- for that container's
+        text to stop growing before capturing, so a mid-stream fragment isn't captured as the final
+        answer.
         """
         page = self._require_page()
         await asyncio.sleep(random.uniform(0.2, 0.6))
         await page.keyboard.type(query, delay=random.uniform(20, 60))
         await page.keyboard.press("Enter")
-        await page.wait_for_load_state("networkidle")
+        return await self.snapshot(
+            wait_for=wait_for,
+            settle_timeout_ms=settle_timeout_ms,
+            settle_poll_ms=settle_poll_ms,
+        )
+
+    async def snapshot(
+        self,
+        *,
+        wait_for: str | None = None,
+        settle_timeout_ms: float = 15000.0,
+        settle_poll_ms: float = 350.0,
+    ) -> CapturePage:
+        """Settle the current page and capture its HTML + final URL, without typing anything.
+
+        The no-type capture path: `submit` calls it after typing a query, and the Google AI-Mode
+        local path calls it directly after navigating straight to a results URL (there is nothing
+        to type).
+
+        The `networkidle` wait is deliberately best-effort and short (bounded to 5s and never
+        allowed to raise): many consumer surfaces -- ChatGPT especially -- hold streaming/telemetry
+        sockets open so `networkidle` never fires, and an unbounded wait there would time out and
+        fail the whole capture before the answer is ever read. A short bounded wait still helps a
+        static page settle, while a miss simply proceeds to the answer wait. When `wait_for` is a
+        selector, additionally wait -- best-effort, bounded by `settle_timeout_ms` -- for that
+        container's text to stop growing before capturing.
+        """
+        page = self._require_page()
+        with contextlib.suppress(Exception):
+            await page.wait_for_load_state("networkidle", timeout=5000)
         if wait_for is not None:
             await self._wait_for_answer_stable(
                 page, wait_for, timeout_ms=settle_timeout_ms, poll_ms=settle_poll_ms
@@ -167,9 +207,21 @@ class BrowserSession:
         return False
 
     async def _wait_for_answer_stable(
-        self, page: Page, selector: str, *, timeout_ms: float, poll_ms: float
+        self,
+        page: Page,
+        selector: str,
+        *,
+        timeout_ms: float,
+        poll_ms: float,
+        stable_needed: int = 2,
     ) -> None:
-        """Poll `selector`'s text length until it is non-empty and unchanged between two polls.
+        """Poll `selector`'s text length until it holds steady across `stable_needed` polls.
+
+        "Steady" means non-empty and within `_STABLE_TOLERANCE_CHARS` of the previous poll: a
+        streamed answer briefly plateaus mid-stream (a token boundary or network hiccup), and the
+        container can be momentarily static before generation even starts, so a *single* stable
+        pair returns too early -- capturing a mid-stream fragment or an empty shell. Requiring
+        `stable_needed` consecutive steady polls rides through those plateaus.
 
         Best-effort and bounded: returns as soon as the answer settles, or quietly once
         `timeout_ms` elapses (a never-matching or perpetually-streaming selector must not hang or
@@ -178,13 +230,18 @@ class BrowserSession:
         loop = asyncio.get_event_loop()
         deadline = loop.time() + timeout_ms / 1000.0
         previous = -1
+        stable = 0
         while loop.time() < deadline:
             try:
                 length = len(await page.inner_text(selector))
             except Exception:
                 length = 0
-            if length > 0 and length == previous:
-                return
+            if length > 0 and previous >= 0 and abs(length - previous) <= _STABLE_TOLERANCE_CHARS:
+                stable += 1
+                if stable >= stable_needed:
+                    return
+            else:
+                stable = 0
             previous = length
             await asyncio.sleep(poll_ms / 1000.0)
 
