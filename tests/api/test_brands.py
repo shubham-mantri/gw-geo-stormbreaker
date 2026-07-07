@@ -79,50 +79,117 @@ def _wire_suggest(
     client.app.dependency_overrides[brands.get_brand_suggest_deps] = lambda: deps
 
 
-def test_suggest_prefills_name_and_competitors(
+def test_suggest_starts_a_job_and_transitions_running_to_done(
     app_client: TestClient, editor_token: str
 ) -> None:
-    # name comes from the profile stage (LLM); competitors are the critique's refined list.
+    # POST *starts* the async job (202 + job_id). The TestClient runs the enqueued BackgroundTask
+    # before returning, so by the time we poll the (hermetic-fake) pipeline has completed -> done,
+    # carrying the refined suggestion. name comes from the profile stage; competitors from critique.
     _wire_suggest(
         app_client,
         page=FetchedPage(text="<head><title>Acme | The best CRM</title></head>"),
         competitors=[{"name": "Beta"}, {"name": "Gamma"}],
     )
+    started = app_client.post(
+        "/brands/suggest",
+        json={"domain": "acme.com"},
+        headers={"Authorization": f"Bearer {editor_token}"},
+    )
+    assert started.status_code == 202  # static /brands/suggest path matched, not a {brand_id} route
+    job_id = started.json()["job_id"]
+    assert job_id  # a non-empty job id to poll
+
+    status = app_client.get(
+        f"/brands/suggest/status/{job_id}",
+        headers={"Authorization": f"Bearer {editor_token}"},
+    )
+    assert status.status_code == 200
+    body = status.json()
+    assert body["status"] == "done"
+    assert body["stage"] == "done"
+    assert body["result"] == {
+        "name": "Acme",
+        "domain": "acme.com",
+        "competitors": ["Beta", "Gamma"],
+    }
+    assert body["error"] is None
+
+
+def test_suggest_no_db_write(app_client: TestClient, editor_token: str) -> None:
+    # Pure read/suggest: starting a suggestion for a domain must not create a brand.
+    _wire_suggest(app_client, page=None, competitors=[])
     r = app_client.post(
         "/brands/suggest",
         json={"domain": "acme.com"},
         headers={"Authorization": f"Bearer {editor_token}"},
     )
-    assert r.status_code == 200  # static /brands/suggest path matched, not a {brand_id} route
-    assert r.json() == {"name": "Acme", "domain": "acme.com", "competitors": ["Beta", "Gamma"]}
-
-
-def test_suggest_no_db_write(app_client: TestClient, editor_token: str) -> None:
-    # Pure read/suggest: suggesting for a domain must not create a brand.
-    _wire_suggest(app_client, page=None, competitors=[])
-    app_client.post(
-        "/brands/suggest",
-        json={"domain": "acme.com"},
-        headers={"Authorization": f"Bearer {editor_token}"},
-    )
+    assert r.status_code == 202
     listed = app_client.get("/brands", headers={"Authorization": f"Bearer {editor_token}"})
     assert listed.json() == []  # nothing persisted
 
 
 def test_suggest_requires_auth(app_client: TestClient) -> None:
-    # No token -> 401 before the body runs, so no live fetch/LLM even with the real default deps.
+    # No token -> 401 before the body runs, so no job is started (and no live fetch/LLM even with
+    # the real default deps).
     r = app_client.post("/brands/suggest", json={"domain": "acme.com"})
     assert r.status_code == 401
 
 
 def test_suggest_requires_editor(app_client: TestClient, viewer_token: str) -> None:
-    # Same principal requirement as POST /brands: a viewer -> 403 (body never runs).
+    # Same principal requirement as POST /brands: a viewer -> 403 (no job started).
     r = app_client.post(
         "/brands/suggest",
         json={"domain": "acme.com"},
         headers={"Authorization": f"Bearer {viewer_token}"},
     )
     assert r.status_code == 403
+
+
+def test_suggest_status_unknown_job_404(app_client: TestClient, editor_token: str) -> None:
+    # An unknown/expired job id collapses to 404 (the client then restarts the lookup).
+    r = app_client.get(
+        "/brands/suggest/status/does-not-exist",
+        headers={"Authorization": f"Bearer {editor_token}"},
+    )
+    assert r.status_code == 404
+
+
+def test_suggest_status_requires_editor(app_client: TestClient, viewer_token: str) -> None:
+    # The status endpoint carries the same RBAC gate as the start endpoint (viewer -> 403).
+    r = app_client.get(
+        "/brands/suggest/status/whatever",
+        headers={"Authorization": f"Bearer {viewer_token}"},
+    )
+    assert r.status_code == 403
+
+
+def test_suggest_error_path_stores_error_and_never_5xxs(
+    app_client: TestClient, editor_token: str
+) -> None:
+    # If the (normally-total) pipeline raised, the runner records status="error"; the endpoints
+    # never 5xx -- the client silently falls back to manual entry.
+    _wire_suggest(app_client, page=None, competitors=[])
+    with patch(
+        "gw_geo.onboarding.jobs.suggest_brand_details",
+        side_effect=RuntimeError("pipeline boom"),
+    ):
+        started = app_client.post(
+            "/brands/suggest",
+            json={"domain": "acme.com"},
+            headers={"Authorization": f"Bearer {editor_token}"},
+        )
+    assert started.status_code == 202
+    job_id = started.json()["job_id"]
+
+    status = app_client.get(
+        f"/brands/suggest/status/{job_id}",
+        headers={"Authorization": f"Bearer {editor_token}"},
+    )
+    assert status.status_code == 200
+    body = status.json()
+    assert body["status"] == "error"
+    assert body["result"] is None
+    assert body["error"] and "pipeline boom" in body["error"]
 
 
 def test_overview_shape(app_client: TestClient, t1_token: str, seeded_snapshots: None) -> None:

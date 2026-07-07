@@ -69,11 +69,40 @@ class BrandSuggestRequest(BaseModel):
     """``POST /brands/suggest`` body (M5 domain-first onboarding): the bare domain to look up.
 
     ``tenant_id`` is **never** in the body -- the endpoint is authed and reads it from the token,
-    though it performs no DB write (pure read/suggest). The response is a :class:`BrandSuggestion`
-    whose fields are pre-filled suggestions the user then edits before ``POST /brands``.
+    though it performs no DB write (pure read/suggest). The grounded competitor pipeline runs
+    **async** (see :class:`BrandSuggestStarted`/:class:`BrandSuggestStatus`); its eventual
+    :class:`BrandSuggestion` fields are pre-filled suggestions the user then edits before
+    ``POST /brands``.
     """
 
     domain: str
+
+
+class BrandSuggestStarted(BaseModel):
+    """``POST /brands/suggest`` **202** response (M5 async onboarding): the started job's id.
+
+    The grounded ~1-2 min competitor pipeline runs on a background thread rather than holding the
+    HTTP connection, so the endpoint returns immediately with a ``job_id`` the client then polls via
+    ``GET /brands/suggest/status/{job_id}`` (:class:`BrandSuggestStatus`) until ``done``/``error``.
+    """
+
+    job_id: str
+
+
+class BrandSuggestStatus(BaseModel):
+    """``GET /brands/suggest/status/{job_id}`` response (M5 async onboarding): the job's live state.
+
+    ``stage``/``label`` are the current pipeline stage (``fetching`` -> ``profiling`` ->
+    ``researching`` -> ``refining`` -> ``done``) for a live progress UI. ``result`` is present only
+    when ``status == "done"``; ``error`` only when ``status == "error"`` -- on which the client falls
+    back to manual entry (onboarding never blocks on a failed lookup).
+    """
+
+    status: Literal["running", "done", "error"]
+    stage: str
+    label: str
+    result: BrandSuggestion | None = None
+    error: str | None = None
 
 
 class MeasureTriggerRequest(BaseModel):

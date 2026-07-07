@@ -42,7 +42,9 @@ PRD NG1: these are grounded suggestions the user edits, never fabricated asserte
 from __future__ import annotations
 
 import json
+import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -52,6 +54,24 @@ from pydantic import BaseModel, Field
 
 from gw_geo.content.generate import LLMClient
 from gw_geo.ranking.fetch import PageFetcher
+
+logger = logging.getLogger(__name__)
+
+# A progress callback: ``(stage_key, human_label)``, called at the START of each pipeline stage.
+# The keys are a stable contract (the async job store + the dashboard's progress UI key off them);
+# the labels are the human-readable copy those surfaces render.
+ProgressHook = Callable[[str, str], None]
+
+# The ordered pipeline stages surfaced via ``on_progress`` (and logged so the backend terminal shows
+# progress). ``"done"`` fires once the suggestion is ready. Threaded through the pipeline so the
+# ~1-2 min grounded run reports where it is instead of a silent long-poll.
+_STAGE_LABELS: dict[str, str] = {
+    "fetching": "Fetching your site",
+    "profiling": "Analyzing your brand and product categories",
+    "researching": "Researching competitors across the web",
+    "refining": "De-duplicating and checking category coverage",
+    "done": "Done",
+}
 
 # Final competitor cap (ui-spec onboarding: a short, editable seed list, not a directory). The
 # critique is asked to cap at this too; the deterministic clean-up below enforces it as a backstop.
@@ -579,6 +599,24 @@ def _clean_names(names: list[str], *, brand_name: str, cap: int) -> list[str]:
     return out
 
 
+# --- progress emission (log every stage; notify the optional hook, total) ----------------------
+
+
+def _emit(on_progress: ProgressHook | None, stage_key: str) -> None:
+    """Log ``stage_key`` (so the backend terminal shows progress) and, if set, notify ``on_progress``.
+
+    Total, matching the module's never-raise guarantee: a raising hook is swallowed (a dropped
+    progress update is harmless), so instrumentation can never break the suggestion pipeline.
+    """
+    label = _STAGE_LABELS[stage_key]
+    logger.info("suggest_brand_details: stage=%s (%s)", stage_key, label)
+    if on_progress is not None:
+        try:
+            on_progress(stage_key, label)
+        except Exception:
+            logger.exception("on_progress hook raised for stage=%s", stage_key)
+
+
 # --- pipeline stage runners (each total: catches every failure, returns a safe default) --------
 
 
@@ -632,7 +670,12 @@ def _run_critique(
 
 
 def suggest_brand_details(
-    *, domain: str, fetcher: PageFetcher, llm: LLMClient, critic: LLMClient | None = None
+    *,
+    domain: str,
+    fetcher: PageFetcher,
+    llm: LLMClient,
+    critic: LLMClient | None = None,
+    on_progress: ProgressHook | None = None,
 ) -> BrandSuggestion:
     """Propose a brand ``name`` + grounded, self-critiqued ``competitors`` for a bare ``domain``.
 
@@ -643,19 +686,32 @@ def suggest_brand_details(
     competitor list is the critique's refined output (else the draft's direct-tier names), run
     through a deterministic dedupe/self-exclude/cap backstop.
 
+    ``on_progress`` (optional, backward-compatible: ``None`` -> today's behavior) is called at the
+    **start** of each stage with ``(stage_key, human_label)`` -- ``fetching`` -> ``profiling`` ->
+    ``researching`` -> ``refining`` -> ``done`` -- so a caller (the async job endpoint) can stream
+    live progress instead of holding a ~1-2 min HTTP connection. Every stage is also ``logger.info``
+    -ed regardless, so the backend terminal shows progress. A raising hook never breaks the run.
+
     Best-effort and total: a fetch failure drops the grounding, any failed/empty/malformed LLM stage
     degrades to the best available result (ultimately the domain-heuristic name + ``[]``), and the
-    function never raises -- so ``POST /brands/suggest`` always returns a usable, fully-editable
-    suggestion and never surfaces a 5xx during onboarding.
+    function never raises -- so onboarding always yields a usable, fully-editable suggestion and
+    never surfaces a 5xx.
     """
     clean_domain = domain.strip()
     critic_client = critic if critic is not None else llm
 
+    _emit(on_progress, "fetching")
     name_hint, page_text = _fetch_context(domain=clean_domain, fetcher=fetcher)
+
+    _emit(on_progress, "profiling")
     profile = _run_profile(
         domain=clean_domain, name_hint=name_hint, page_text=page_text, llm=llm
     )
+
+    _emit(on_progress, "researching")
     draft = _run_draft(domain=clean_domain, profile=profile, llm=llm)
+
+    _emit(on_progress, "refining")
     refined = _run_critique(
         domain=clean_domain, profile=profile, draft=draft, critic=critic_client
     )
@@ -665,7 +721,10 @@ def suggest_brand_details(
     # (aspirational/up-market players already excluded) -- then a deterministic clean-up backstop.
     chosen = refined if refined else _direct_names(draft)
     competitors = _clean_names(chosen, brand_name=name, cap=_MAX_COMPETITORS)
-    return BrandSuggestion(name=name, domain=clean_domain, competitors=competitors)
+    suggestion = BrandSuggestion(name=name, domain=clean_domain, competitors=competitors)
+
+    _emit(on_progress, "done")
+    return suggestion
 
 
 __all__ = ["BrandSuggestion", "normalize_url", "suggest_brand_details"]

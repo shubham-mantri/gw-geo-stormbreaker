@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Circle, Loader2, X } from "lucide-react";
 
 import { apiClient } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import type { IntegrationKind, Prompt } from "@/lib/types";
+import type { BrandSuggestStatus, IntegrationKind, Prompt } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,6 +26,30 @@ const AVAILABLE_INTEGRATIONS: { kind: IntegrationKind; label: string }[] = [
   { kind: "salesforce", label: "Salesforce" },
   { kind: "ga4", label: "GA4" },
 ];
+
+/**
+ * The ordered domain-lookup stages shown as a live stepper in step 1. Keys mirror the backend
+ * `stage` values (`gw_geo/onboarding/suggest.py`); the terminal `done`/`error` stages aren't steps
+ * (they end the poll). The short labels here are the stepper rows; the backend's fuller `label`
+ * drives the aria-live status line so screen readers announce progress as it changes.
+ */
+const SUGGEST_STAGES: { key: string; label: string }[] = [
+  { key: "fetching", label: "Fetching your site" },
+  { key: "profiling", label: "Analyzing your brand" },
+  { key: "researching", label: "Researching competitors" },
+  { key: "refining", label: "Checking category coverage" },
+];
+
+/** Poll cadence for the async suggest job (matches the ui-spec's "~1-2 min" grounded lookup). */
+const SUGGEST_POLL_MS = 1500;
+
+/** Index of the currently-active step for a backend `stage` (`done` -> all complete; unknown/
+ * `"starting"` -> the first step). Drives the stepper's active/complete/pending styling. */
+function suggestActiveIndex(stage: string): number {
+  if (stage === "done") return SUGGEST_STAGES.length;
+  const i = SUGGEST_STAGES.findIndex((s) => s.key === stage);
+  return i === -1 ? 0 : i;
+}
 
 export type OnboardingWizardProps = {
   /** Called once the user is done reading the "measuring" state and wants to continue. */
@@ -49,11 +73,27 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Step 1 — brand. `domain` is the primary input: "Look up" auto-fills `brandName` and seeds the
-  // competitors list from the site + LLM (both stay fully editable).
+  // Step 1 — brand. `domain` is the primary input: "Look up" starts the async lookup that auto-fills
+  // `brandName` and seeds the competitors list from the site + LLM (both stay fully editable).
   const [brandName, setBrandName] = useState("");
   const [domain, setDomain] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
+  // Live progress of the async suggest job (backend `stage` key + human `label`), shown as a stepper
+  // + an aria-live status line while `lookingUp`.
+  const [progressStage, setProgressStage] = useState("");
+  const [progressLabel, setProgressLabel] = useState("");
+  // The poll interval handle, so we can clear it on done/error/unmount.
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopPolling() {
+    if (pollRef.current !== null) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  // Clear any in-flight poll on unmount (an abandoned lookup must not keep polling).
+  useEffect(() => stopPolling, []);
 
   // Step 2 — competitors.
   const [competitorInput, setCompetitorInput] = useState("");
@@ -73,24 +113,55 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   }
 
   /**
-   * Domain-first auto-fill: ask the backend to read the brand name off the site and suggest
-   * competitors, then pre-fill both (still editable). Best-effort — a failed lookup is swallowed so
-   * the user just falls back to typing the name manually; it never blocks onboarding.
+   * Domain-first auto-fill: **start** the async backend lookup, then poll it every ~1.5s for live
+   * stage progress, and on completion pre-fill the brand name + seed the competitors (still
+   * editable). The grounded pipeline takes ~1-2 min, so it runs as a job the client polls rather
+   * than a single long request that the dev proxy would reset.
+   *
+   * Best-effort — a failed start, a failed poll, or a job that ends in `error` all fall back
+   * silently to manual entry (no error shown); a lookup never blocks onboarding.
    */
   async function lookUp() {
     const value = domain.trim();
     if (value === "" || lookingUp) return;
     setLookingUp(true);
     setError(null);
+    setProgressStage("fetching");
+    setProgressLabel("Fetching your site");
+
+    const client = apiClient(getToken);
+    let job: { job_id: string };
     try {
-      const suggestion = await apiClient(getToken).suggestBrand(value);
-      if (suggestion.name) setBrandName(suggestion.name);
-      if (Array.isArray(suggestion.competitors)) setCompetitors(suggestion.competitors);
+      job = await client.startBrandSuggest(value);
     } catch {
-      // Silent fallback to manual entry — a lookup failure must not block onboarding.
-    } finally {
-      setLookingUp(false);
+      setLookingUp(false); // couldn't even start — fall back to manual entry
+      return;
     }
+
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      let status: BrandSuggestStatus;
+      try {
+        status = await client.getBrandSuggestStatus(job.job_id);
+      } catch {
+        stopPolling();
+        setLookingUp(false); // poll failed (e.g. unknown/expired job) — fall back silently
+        return;
+      }
+      setProgressStage(status.stage);
+      setProgressLabel(status.label);
+      if (status.status === "done") {
+        stopPolling();
+        if (status.result) {
+          if (status.result.name) setBrandName(status.result.name);
+          if (Array.isArray(status.result.competitors)) setCompetitors(status.result.competitors);
+        }
+        setLookingUp(false);
+      } else if (status.status === "error") {
+        stopPolling();
+        setLookingUp(false); // job errored — silent fallback to manual entry (as today)
+      }
+    }, SUGGEST_POLL_MS);
   }
 
   function addCompetitor() {
@@ -216,18 +287,60 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   {lookingUp ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                      Researching…
+                      Looking up…
                     </>
                   ) : (
                     "Look up"
                   )}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {lookingUp
-                  ? "Researching your brand and competitors across the web — this can take a minute or two."
-                  : "Enter your domain and we'll pre-fill your brand name and competitors — all editable."}
-              </p>
+              {lookingUp ? (
+                <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                  <ol className="space-y-1.5">
+                    {SUGGEST_STAGES.map((s, i) => {
+                      const activeIndex = suggestActiveIndex(progressStage);
+                      const isDone = i < activeIndex;
+                      const isActive = i === activeIndex;
+                      return (
+                        <li key={s.key} className="flex items-center gap-2 text-sm">
+                          {isDone ? (
+                            <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                          ) : isActive ? (
+                            <Loader2
+                              className="h-3.5 w-3.5 shrink-0 animate-spin text-primary"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <Circle
+                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40"
+                              aria-hidden="true"
+                            />
+                          )}
+                          <span
+                            className={
+                              isActive
+                                ? "font-medium text-foreground"
+                                : isDone
+                                  ? "text-muted-foreground"
+                                  : "text-muted-foreground/60"
+                            }
+                          >
+                            {s.label}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  <p role="status" aria-live="polite" className="text-xs text-muted-foreground">
+                    {progressLabel || "Starting…"} — this can take a minute or two.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Enter your domain and we&apos;ll pre-fill your brand name and competitors — all
+                  editable.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="onboarding-brand-name">Brand name</Label>

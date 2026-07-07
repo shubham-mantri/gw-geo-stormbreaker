@@ -3,7 +3,8 @@ import type {
   Alert,
   Brand,
   BrandCreated,
-  BrandSuggestion,
+  BrandSuggestStarted,
+  BrandSuggestStatus,
   ContentApproveResponse,
   ContentGenerateResponse,
   ContentPublishResponse,
@@ -87,11 +88,16 @@ export type ApiClient = {
     competitors?: string[];
   }): Promise<BrandCreated>;
   /**
-   * `POST /brands/suggest` — domain-first onboarding auto-fill (role ≥ editor). Given a domain,
-   * returns a suggested brand `name` (read off the site) + likely `competitors`, both editable.
-   * Purely advisory: performs no DB write.
+   * `POST /brands/suggest` — **start** the domain-first onboarding auto-fill (role ≥ editor). The
+   * grounded competitor lookup takes ~1-2 min, so it runs async: this returns a `job_id` (202)
+   * immediately; poll `getBrandSuggestStatus` until `done`/`error`. Purely advisory: no DB write.
    */
-  suggestBrand(domain: string): Promise<BrandSuggestion>;
+  startBrandSuggest(domain: string): Promise<BrandSuggestStarted>;
+  /**
+   * `GET /brands/suggest/status/{job_id}` — poll a suggest job (role ≥ editor). Returns the live
+   * `stage`/`label` (progress UI), and — once `done` — the suggested `result`.
+   */
+  getBrandSuggestStatus(jobId: string): Promise<BrandSuggestStatus>;
   /**
    * `POST /brands/{id}/measure` — kick off a measurement run (role ≥ editor;
    * brand-ownership checked server-side). Returns **202** with the scheduled run
@@ -202,11 +208,15 @@ export function apiClient(
         method: "POST",
         body: JSON.stringify(input),
       }),
-    suggestBrand: (domain) =>
-      request<BrandSuggestion>("/brands/suggest", {
+    startBrandSuggest: (domain) =>
+      request<BrandSuggestStarted>("/brands/suggest", {
         method: "POST",
         body: JSON.stringify({ domain }),
       }),
+    getBrandSuggestStatus: (jobId) =>
+      request<BrandSuggestStatus>(
+        `/brands/suggest/status/${encodeURIComponent(jobId)}`,
+      ),
     measureBrand: (brandId, body = {}) =>
       request<MeasureAccepted>(`${brandPath(brandId)}/measure`, {
         method: "POST",

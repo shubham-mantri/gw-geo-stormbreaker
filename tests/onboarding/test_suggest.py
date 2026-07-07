@@ -358,6 +358,56 @@ def test_malformed_profile_and_draft_degrade_to_domain_and_empty() -> None:
         assert out.competitors == [], draft_payload
 
 
+# --- progress hook: each stage emitted (in order) + backward compatibility ---------------------
+
+
+def test_on_progress_receives_each_stage_key_in_order() -> None:
+    # The async job/UI keys off these stage keys, so the order + keys are a contract.
+    fetcher = FakeFetcher(FetchedPage(text="<head><title>Acme</title></head>"))
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta"]},
+    )
+    stages: list[tuple[str, str]] = []
+    out = suggest_brand_details(
+        domain="acme.com",
+        fetcher=fetcher,
+        llm=llm,
+        on_progress=lambda key, label: stages.append((key, label)),
+    )
+    keys = [key for key, _ in stages]
+    assert keys == ["fetching", "profiling", "researching", "refining", "done"]
+    labels = dict(stages)
+    assert labels["researching"] == "Researching competitors across the web"
+    assert all(label for label in labels.values())  # every stage carries a human label
+    assert out.competitors == ["Beta"]  # progress hook doesn't alter the result
+
+
+def test_on_progress_defaults_to_none_backward_compatible() -> None:
+    # Omitting on_progress keeps today's behavior (the signature stays backward-compatible).
+    llm = ScriptedLLM(profile={"name": "Acme", "categories": []}, draft={"competitors": []})
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    assert out.name == "Acme"
+
+
+def test_on_progress_hook_raising_never_breaks_the_pipeline() -> None:
+    # A raising hook must not break the module's never-raise guarantee.
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta"]},
+    )
+
+    def boom(key: str, label: str) -> None:
+        raise RuntimeError("hook boom")
+
+    out = suggest_brand_details(
+        domain="acme.com", fetcher=FakeFetcher(None), llm=llm, on_progress=boom
+    )
+    assert out.competitors == ["Beta"]  # pipeline completed despite the hook raising
+
+
 # --- BrandSuggestion shape (unchanged response contract) ---------------------------------------
 
 

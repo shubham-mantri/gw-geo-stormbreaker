@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 
 import { OnboardingWizard } from "./OnboardingWizard";
@@ -29,47 +29,110 @@ describe("OnboardingWizard", () => {
     expect(screen.getByRole("button", { name: /next/i })).toBeEnabled();
   });
 
-  it("looks up the domain to prefill brand name and seed competitors (both editable)", async () => {
-    const client = mockApi();
-    vi.spyOn(client, "suggestBrand").mockResolvedValue({
-      name: "Acme Corp",
-      domain: "acme.com",
-      competitors: ["Beta", "Gamma"],
-    });
+  it("starts a suggest job, advances the visible stage while polling, and seeds competitors on done", async () => {
+    vi.useFakeTimers();
+    try {
+      // mockApi's built-in progression: running/profiling -> running/researching -> done(Acme,[Beta]).
+      const client = mockApi();
+      vi.spyOn(client, "startBrandSuggest"); // call-through, so we can assert it was started
 
-    render(<OnboardingWizard />);
-    fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: "acme.com" } });
-    fireEvent.click(screen.getByRole("button", { name: /look up/i }));
+      render(<OnboardingWizard />);
+      fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: "acme.com" } });
+      fireEvent.click(screen.getByRole("button", { name: /look up/i }));
 
-    // Brand name prefilled into the editable field; the lookup used the typed domain.
-    expect(await screen.findByDisplayValue("Acme Corp")).toBeInTheDocument();
-    expect(client.suggestBrand).toHaveBeenCalledWith("acme.com");
+      // The job is started with the typed domain; the first stage shows immediately (pre-poll).
+      expect(client.startBrandSuggest).toHaveBeenCalledWith("acme.com");
+      expect(screen.getByRole("status")).toHaveTextContent(/fetching your site/i);
 
-    // Competitors seeded into step 2 — present and removable (editable).
-    fireEvent.click(screen.getByRole("button", { name: /next/i }));
-    expect(screen.getByText(/step 2 of 5/i)).toBeInTheDocument();
-    expect(screen.getByText("Beta")).toBeInTheDocument();
-    expect(screen.getByText("Gamma")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /remove beta/i }));
-    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+      // Flush the start promise so the poll interval registers.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      // Poll 1 (~1.5s) -> the visible stage advances to "profiling".
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(screen.getByRole("status")).toHaveTextContent(
+        /analyzing your brand and product categories/i,
+      );
+
+      // Poll 2 -> "researching".
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(screen.getByRole("status")).toHaveTextContent(
+        /researching competitors across the web/i,
+      );
+
+      // Poll 3 -> "done": brand name prefilled + competitors seeded, polling stopped.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(screen.getByDisplayValue("Acme")).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument(); // lookup finished
+
+      // Competitors seeded into step 2 — present and removable (editable).
+      fireEvent.click(screen.getByRole("button", { name: /next/i }));
+      expect(screen.getByText(/step 2 of 5/i)).toBeInTheDocument();
+      expect(screen.getByText("Beta")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /remove beta/i }));
+      expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("falls back to manual entry (no block, no error) when the lookup fails", async () => {
+  it("falls back to manual entry (no block, no error) when starting the lookup fails", async () => {
     const client = mockApi();
-    vi.spyOn(client, "suggestBrand").mockRejectedValue(new Error("lookup boom"));
+    vi.spyOn(client, "startBrandSuggest").mockRejectedValue(new Error("start boom"));
 
     render(<OnboardingWizard />);
     fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: "acme.com" } });
     fireEvent.click(screen.getByRole("button", { name: /look up/i }));
 
-    await waitFor(() => expect(client.suggestBrand).toHaveBeenCalled());
-    // Silent: no error alert, and the name field stays empty for manual entry.
+    // Silent: the progress UI clears once the start fails; no error alert.
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(client.startBrandSuggest).toHaveBeenCalled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
-    // Manual entry still works: type the name, then advance to competitors.
+    // Manual entry still works: the name field is empty; type it, then advance to competitors.
+    expect(screen.getByLabelText(/brand name/i)).toHaveValue("");
     fireEvent.change(screen.getByLabelText(/brand name/i), { target: { value: "Manual Co" } });
     fireEvent.click(screen.getByRole("button", { name: /next/i }));
     expect(screen.getByText(/step 2 of 5/i)).toBeInTheDocument();
+  });
+
+  it("falls back to manual entry silently when the suggest job ends in error", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = mockApi();
+      vi.spyOn(client, "getBrandSuggestStatus").mockResolvedValue({
+        status: "error",
+        stage: "researching",
+        label: "Researching competitors across the web",
+        result: null,
+        error: "pipeline boom",
+      });
+
+      render(<OnboardingWizard />);
+      fireEvent.change(screen.getByLabelText(/domain/i), { target: { value: "acme.com" } });
+      fireEvent.click(screen.getByRole("button", { name: /look up/i }));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0); // register the poll interval
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500); // poll -> error -> silent fallback
+      });
+
+      // No error surfaced; the progress UI is gone and the name stays empty for manual entry.
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/brand name/i)).toHaveValue("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("supports going back to a previous step", () => {

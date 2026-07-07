@@ -38,6 +38,7 @@ from gw_geo.api.routers import (
 from gw_geo.api.routers import settings as settings_router
 from gw_geo.api.schemas import LoginRequest, RefreshRequest
 from gw_geo.common.config import Settings, get_settings
+from gw_geo.onboarding.jobs import SuggestJobStore
 
 _auth_router = APIRouter(tags=["auth"])
 
@@ -154,6 +155,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="gw-geo API", version="0.0.1")
     app.state.settings = settings
     app.state.db_engine = create_engine(settings.database_url)
+    # Process-local store for the async domain-first onboarding suggestion (M5): `POST
+    # /brands/suggest` seeds a job here and runs the ~1-2 min pipeline on a background thread;
+    # `GET /brands/suggest/status/{job_id}` polls it. In-memory + local-only by design (see
+    # `onboarding/jobs.py`); a job lost on reload just makes the client restart the lookup.
+    app.state.suggest_jobs = SuggestJobStore()
 
     app.add_middleware(
         CORSMiddleware,
