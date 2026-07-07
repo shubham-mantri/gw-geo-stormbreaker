@@ -44,17 +44,25 @@ class _FakeLocator:
 
 
 class _FakePage:
-    def __init__(self) -> None:
+    def __init__(self, *, networkidle_error: Exception | None = None) -> None:
         self.calls: list[tuple[str, str]] = []
         self.keyboard = _FakeKeyboard(self.calls)
         self.url = "https://surface.example/x"
         self.goto_url: str | None = None
+        # When set, `wait_for_load_state("networkidle", ...)` raises it -- simulating a surface
+        # (ChatGPT) that holds sockets open so networkidle never fires within the timeout.
+        self._networkidle_error = networkidle_error
+        self.networkidle_timeouts: list[float | None] = []
 
     async def goto(self, url: str, wait_until: str | None = None) -> None:
         self.goto_url = url
 
-    async def wait_for_load_state(self, state: str) -> None:
+    async def wait_for_load_state(self, state: str, timeout: float | None = None) -> None:
         self.calls.append(("wait_load", state))
+        if state == "networkidle":
+            self.networkidle_timeouts.append(timeout)
+            if self._networkidle_error is not None:
+                raise self._networkidle_error
 
     async def content(self) -> str:
         return "<html>answer</html>"
@@ -222,3 +230,87 @@ async def test_click_if_present_best_effort(record: dict[str, Any]) -> None:
         assert await session.click_if_present("#absent-1", "#absent-2") is False
         # First matching selector wins; a leading miss falls through to the next candidate.
         assert await session.click_if_present("#absent", "#present") is True
+
+
+async def test_snapshot_uses_a_bounded_best_effort_networkidle_wait(record: dict[str, Any]) -> None:
+    """`networkidle` is awaited with a short bounded timeout, not the unbounded default."""
+    async with BrowserSession(headless=True) as session:
+        fake_page = session._page
+        assert isinstance(fake_page, _FakePage)
+        page = await session.snapshot()
+    assert isinstance(page, CapturePage)
+    assert fake_page.networkidle_timeouts == [5000]  # bounded (5s), never an unbounded 30s wait
+
+
+async def test_snapshot_swallows_a_networkidle_that_never_fires(record: dict[str, Any]) -> None:
+    """THE ChatGPT fix: a networkidle that never settles must NOT fail the capture."""
+    async with BrowserSession(headless=True) as session:
+        fake_page = session._page
+        assert isinstance(fake_page, _FakePage)
+        fake_page._networkidle_error = TimeoutError("networkidle never fires (streaming sockets)")
+        page = await session.snapshot()
+    assert isinstance(page, CapturePage)  # raise swallowed -> still captured
+    assert page.html == "<html>answer</html>"
+    assert fake_page.networkidle_timeouts == [5000]  # the bounded wait was attempted before raising
+
+
+async def test_snapshot_captures_without_typing(record: dict[str, Any]) -> None:
+    """The no-type path (Google AI Mode navigates directly): snapshot must not type/press."""
+    async with BrowserSession(headless=True) as session:
+        fake_page = session._page
+        assert isinstance(fake_page, _FakePage)
+        page = await session.snapshot(wait_for="#answer", settle_timeout_ms=50.0, settle_poll_ms=5.0)
+    assert isinstance(page, CapturePage)
+    assert page.html == "<html>answer</html>"
+    assert not any(call[0] in ("type", "press") for call in fake_page.calls)
+
+
+async def test_submit_survives_networkidle_that_never_fires(record: dict[str, Any]) -> None:
+    """End-to-end ChatGPT-bug regression: submit still returns when networkidle never settles."""
+    async with BrowserSession(headless=True) as session:
+        fake_page = session._page
+        assert isinstance(fake_page, _FakePage)
+        fake_page._networkidle_error = TimeoutError("networkidle timed out")
+        page = await session.submit(
+            "best crm", wait_for="#answer", settle_timeout_ms=100.0, settle_poll_ms=5.0
+        )
+    assert isinstance(page, CapturePage)
+    assert page.html == "<html>answer</html>"
+
+
+class _ScriptedPage:
+    """`inner_text` returns strings of scripted lengths (clamping to the last); counts polls."""
+
+    def __init__(self, lengths: list[int]) -> None:
+        self._lengths = lengths
+        self.poll_count = 0
+
+    async def inner_text(self, selector: str) -> str:
+        index = min(self.poll_count, len(self._lengths) - 1)
+        self.poll_count += 1
+        return "x" * self._lengths[index]
+
+
+async def test_wait_for_answer_stable_requires_consecutive_stable_polls() -> None:
+    """A single early plateau must not settle the wait; it needs N consecutive steady polls."""
+    session = BrowserSession(headless=True)  # not entered: `_wait_for_answer_stable` uses the arg
+    # Lengths: an early (100, 100) plateau -- one stable pair the OLD single-pair logic would have
+    # returned on, mid-stream -- then growth to a final steady run of 600s.
+    scripted = _ScriptedPage([100, 100, 300, 600, 600, 600, 600])
+
+    await session._wait_for_answer_stable(scripted, "#answer", timeout_ms=5000.0, poll_ms=0.0)
+
+    # Settled only on the 2nd consecutive steady 600 (poll 6), NOT at the early 100,100 plateau
+    # (which is where a single-stable-pair rule would have stopped, at poll 2).
+    assert scripted.poll_count == 6
+
+
+async def test_wait_for_answer_stable_tolerates_small_length_jitter() -> None:
+    """Lengths within the tolerance band count as steady (a settled stream still jitters)."""
+    session = BrowserSession(headless=True)
+    # 500 -> 510 -> 512: never identical, but each step is within +/-16 chars, so it settles.
+    scripted = _ScriptedPage([500, 510, 512])
+
+    await session._wait_for_answer_stable(scripted, "#answer", timeout_ms=5000.0, poll_ms=0.0)
+
+    assert scripted.poll_count == 3  # two consecutive within-tolerance steps settle it

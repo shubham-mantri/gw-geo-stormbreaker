@@ -1,11 +1,12 @@
 """Hermetic tests for `LocalCaptureClient` (M5 local persistent-profile browser capture).
 
 Every test injects a fake session (never a real `BrowserSession`), so no browser, profile, or
-network is touched. They pin: surface -> start-URL resolution, the per-surface best-effort submit
-path (composer focus + streaming wait for chatgpt/grok, cookie-consent dismissal for Google), the
-single lazily-opened session reused across fetches, and that the `asyncio.Lock` serializes
-concurrent fetches to browser-concurrency 1. The real browser path is exercised only by the
-`@pytest.mark.live` test in `test_local_live.py`, deselected by default.
+network is touched. They pin: surface -> capture-URL resolution, the per-surface capture path
+(chatgpt/grok: composer focus + type + streaming-settle submit; google_ai_overviews: navigate
+straight to the AI-Mode udm=50 URL and snapshot, no typing), the single lazily-opened session
+reused across fetches, and that the `asyncio.Lock` serializes concurrent fetches to
+browser-concurrency 1. The real browser path is exercised only by the `@pytest.mark.live` test in
+`test_local_live.py`, deselected by default.
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ class FakeLocalSession:
         self.opened_urls: list[str] = []
         self.clicks: list[tuple[str, ...]] = []
         self.submits: list[tuple[str, str | None]] = []
+        self.snapshots: list[str | None] = []  # wait_for arg of each no-type snapshot capture
         self.entered = False
         self.exited = False
         self._tracker = tracker
@@ -72,6 +74,18 @@ class FakeLocalSession:
         settle_poll_ms: float = 350.0,
     ) -> CapturePage:
         self.submits.append((query, wait_for))
+        if self._tracker is not None:
+            await self._tracker.exit()
+        return CapturePage(html="<html>fake</html>", final_url="https://fake/answer")
+
+    async def snapshot(
+        self,
+        *,
+        wait_for: str | None = None,
+        settle_timeout_ms: float = 15000.0,
+        settle_poll_ms: float = 350.0,
+    ) -> CapturePage:
+        self.snapshots.append(wait_for)
         if self._tracker is not None:
             await self._tracker.exit()
         return CapturePage(html="<html>fake</html>", final_url="https://fake/answer")
@@ -140,17 +154,20 @@ async def test_chat_surfaces_focus_composer_and_wait_for_answer(
     assert wait_for is not None and answer_marker in wait_for
 
 
-async def test_google_dismisses_consent_and_submits_without_streaming_wait() -> None:
-    """google_ai_overviews: best-effort dismiss cookie consent; no streaming answer container."""
+async def test_google_uses_ai_mode_direct_url_and_does_not_type() -> None:
+    """google_ai_overviews captures AI Mode: navigate straight to the udm=50 URL; never type."""
     factory = _factory()
     client = _client(factory)
 
-    await client.fetch("q", surface="google_ai_overviews", geo="us", persona=None)
+    await client.fetch("best crm for smb", surface="google_ai_overviews", geo="us", persona=None)
 
     session = factory.created[0]
-    assert session.opened_urls == ["https://www.google.com/"]
-    assert session.clicks, "expected a best-effort cookie-consent dismissal"
-    assert session.submits[0][1] is None  # no answer-container settle wait for a SERP
+    # Opened the AI-Mode results URL built from the url-encoded query -- not the homepage box.
+    assert session.opened_urls == ["https://www.google.com/search?q=best+crm+for+smb&udm=50"]
+    # No typing: AI Mode answers from the direct URL, so submit() (type + Enter) is never called.
+    assert session.submits == []
+    # It snapshots the streamed answer region (`[role='main']`) instead.
+    assert session.snapshots == ["[role='main']"]
 
 
 async def test_unknown_surface_raises_without_opening_a_session() -> None:
@@ -172,8 +189,12 @@ async def test_session_is_opened_once_and_reused_across_fetches() -> None:
     await client.fetch("q3", surface="google_ai_overviews", geo="us", persona=None)
 
     assert len(factory.created) == 1  # one persistent profile, reused
-    assert factory.created[0].entered is True
-    assert len(factory.created[0].submits) == 3
+    session = factory.created[0]
+    assert session.entered is True
+    assert len(session.opened_urls) == 3  # one navigation per fetch, all on the one session
+    # chatgpt/grok type + submit; google_ai_overviews snapshots the direct AI-Mode URL.
+    assert len(session.submits) == 2
+    assert len(session.snapshots) == 1
 
 
 async def test_lock_serializes_concurrent_fetches_to_one_browser() -> None:

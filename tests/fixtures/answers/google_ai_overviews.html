@@ -1,10 +1,13 @@
 <!DOCTYPE html>
 <!--
-  Sanitized, hand-authored fixture approximating a Google Search results page that contains an
-  AI Overview for the query "best crm for smb?". Class/attribute names mimic (but do not copy
-  verbatim) real Google SERP hooks so the adapter's resilient, priority-ordered selector list has
-  something realistic to exercise. Per m1-design.md S10, this DOM is expected to drift over time;
-  see AIOverviewsAdapter's fallback chain in src/gw_geo/measurement/probe/ai_overviews.py.
+  Sanitized, hand-authored fixture approximating a Google Search *AI Mode* results page
+  (/search?q=best+crm+for+smb&udm=50) for the query "best crm for smb?". This is the surface the
+  local capture path now drives (see src/gw_geo/capture/local.py); the older AI Overviews box is
+  query-gated and unreliable. The AIOverviewsAdapter is deliberately structure-light: it reads the
+  answer from `[role="main"]` and treats every external (non-Google) http(s) link as a citation,
+  so it does NOT key on Google's obfuscated, churning citation classes (e.g. `PMDqCb` below, which
+  changes without notice). Per m1-design.md S10 this DOM is expected to drift; the class names here
+  mimic (but do not copy verbatim) real hooks purely to exercise the parser realistically.
 -->
 <html lang="en">
   <head>
@@ -12,49 +15,47 @@
     <title>best crm for smb - Google Search</title>
   </head>
   <body>
-    <div id="search">
-      <div id="rso">
-        <div data-attrid="AIOverview" class="LT6Yjf">
-          <div jsname="aioAnswer" class="AIOverview-answer">
-            <div class="hgKElc">
-              <span>
-                For small and medium businesses, the top-rated CRM platforms are
-                <a href="https://www.hubspot.com/products/crm">HubSpot</a> for its generous free
-                tier and ease of setup, Salesforce for scalability into the enterprise, and Zoho
-                CRM for affordability. Most SMB buyers should start with a free trial of two or
-                three options before committing, since integrations with existing email and
-                billing tools often matter more than the feature checklist.
-              </span>
-            </div>
-          </div>
-          <div jsname="aioSources" class="AIOverview-sources">
-            <ol class="source-list">
-              <li class="source-item">
-                <a href="https://www.hubspot.com/products/crm" data-ved="xyz1">HubSpot CRM</a>
-              </li>
-              <li class="source-item">
-                <a href="https://www.g2.com/categories/crm" data-ved="xyz2">Best CRM Software - G2</a>
-              </li>
-              <li class="source-item">
-                <a href="https://www.salesforce.com/crm/" data-ved="xyz3">Salesforce CRM</a>
-              </li>
-              <li class="source-item">
-                <a href="/url?q=https://www.zoho.com/crm/pricing&amp;sa=U&amp;ved=abc123">
-                  Zoho CRM Pricing
-                </a>
-              </li>
-              <li class="source-item">
-                <a href="#" data-ved="xyz4">Show more</a>
-              </li>
-            </ol>
-          </div>
+    <!-- Google's own chrome: nav + account links. None of these are citations (google hosts). -->
+    <header>
+      <a href="https://www.google.com/preferences?hl=en">Settings</a>
+      <a href="https://accounts.google.com/ServiceLogin">Sign in</a>
+      <a href="/search?q=best+crm+for+smb&amp;udm=14">All</a>
+    </header>
+
+    <div role="main">
+      <div class="AI-Mode">
+        <h1>AI Mode</h1>
+        <div class="answer-body">
+          <p>
+            For a small or medium business, the most recommended CRM platforms are
+            <a class="PMDqCb" href="https://www.hubspot.com/products/crm">HubSpot</a>, valued for
+            its generous free tier and quick setup, and
+            <a class="PMDqCb" href="https://www.salesforce.com/crm/">Salesforce</a> for scaling
+            into the enterprise. Independent review sites such as
+            <a class="PMDqCb" href="https://www.g2.com/categories/crm">G2</a> compare the options
+            side by side, while
+            <a class="PMDqCb" href="https://www.zoho.com/crm/pricing">Zoho CRM</a> is often the
+            most affordable choice for early-stage teams. Most buyers should trial two or three
+            before committing, since integrations with existing email and billing tools usually
+            matter more than the feature checklist.
+          </p>
         </div>
-        <div class="g">
-          <a href="https://example.com/other-organic-result">
-            An unrelated organic result outside the AI Overview (must not be treated as a citation)
-          </a>
+
+        <!-- A carousel of source chips. Note the deliberate mix of a Google `/url?` redirect
+             wrapper (host resolves to www.google.com -> dropped, NOT unwrapped) alongside the same
+             citation's direct external link, so de-dup / non-unwrapping behavior is exercised. -->
+        <div class="source-chips">
+          <a href="/url?q=https://www.hubspot.com/products/crm&amp;sa=U&amp;ved=abc">HubSpot</a>
+          <a href="https://www.hubspot.com/products/crm">hubspot.com</a>
+          <a href="https://encrypted-tbn0.gstatic.com/images?q=tbn:thumb1"><img alt="thumb" /></a>
+          <a href="https://lh3.googleusercontent.com/proxy/site-favicon">favicon</a>
         </div>
       </div>
     </div>
+
+    <footer>
+      <a href="https://policies.google.com/privacy">Privacy</a>
+      <a href="https://support.google.com/websearch">Help</a>
+    </footer>
   </body>
 </html>

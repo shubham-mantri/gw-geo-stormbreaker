@@ -1,15 +1,19 @@
-"""Google AI Overviews adapter (m1-design.md §S3.1, docs/tasks/M1-T11-ai-overviews-adapter.md).
+"""Google AI-Mode adapter (m1-design.md §S3.1, docs/tasks/M1-T11-ai-overviews-adapter.md).
 
-Playwright-surface adapter: calls the injected `CaptureClient` to fetch a rendered Google search
-results page for `prompt`, then parses the returned `CapturePage.html` with BeautifulSoup to pull
-out the AI Overview's answer text and cited source URLs.
+Playwright-surface adapter: calls the injected `CaptureClient` to fetch a rendered Google **AI
+Mode** results page for `prompt` (the local capture path navigates directly to
+`/search?q=...&udm=50`, see `capture/local.py`), then parses the returned `CapturePage.html` with
+BeautifulSoup to pull out the AI answer text and its cited external source URLs. The
+`google_ai_overviews` engine name is retained for registry/engine-name stability; only the
+captured surface changed (AI Overviews box -> AI Mode).
 
-The consumer-facing AI Overview DOM has no public/stable API and Google changes its markup
-without notice (m1-design.md §10: "consumer-surface DOM is unstable -> parsers must be
-resilient"). Every lookup below walks a short priority list of candidate selectors and degrades
-toward an empty/partial result on a miss instead of raising, so a DOM change shows up as reduced
-answer/citation quality rather than a broken measurement run. See
-`tests/measurement/probe/test_ai_overviews.py` for the pinned garbled/missing-overview behavior.
+The consumer-facing DOM has no public/stable API and Google changes its markup without notice
+(m1-design.md §10: "consumer-surface DOM is unstable -> parsers must be resilient"). Rather than
+keying on Google's obfuscated, churning class names (e.g. citation anchors carry classes like
+`PMDqCb` that change without notice), extraction is deliberately structure-light: the answer is the
+text of the page's `[role="main"]` region, and citations are simply every external (non-Google)
+http(s) link on the page. A DOM change therefore shows up as reduced answer/citation quality rather
+than a broken run. See `tests/measurement/probe/test_ai_overviews.py`.
 
 Import is side-effect-free: this module never calls `measurement.probe.base.register()` itself --
 that happens at wiring time (runner/CLI), same convention as the other adapters.
@@ -18,74 +22,82 @@ that happens at wiring time (runner/CLI), same convention as the other adapters.
 from __future__ import annotations
 
 import time
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urljoin, urlparse
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 from gw_geo.capture.base import CaptureClient
 from gw_geo.common.models import ProbeResult
 
-# Candidate selectors for the AI Overview's outer container, tried in priority order until one
-# matches. Scoping every lookup below to this root -- rather than scanning the whole SERP -- is
-# what keeps unrelated organic-result links from being mistaken for AI Overview citations.
-_ROOT_SELECTORS: tuple[str, ...] = ('[data-attrid="AIOverview"]', ".LT6Yjf")
+# The region AI Mode streams its answer into. If absent (a redesign, or a non-AI-Mode SERP), we
+# fall back to the whole document's text rather than an empty answer.
+_MAIN_SELECTOR = "[role='main']"
 
-# Candidate selectors for the answer-text node *within* the root, most-specific first.
-_ANSWER_SELECTORS: tuple[str, ...] = ('[jsname="aioAnswer"]', ".AIOverview-answer", ".hgKElc")
+# Host substrings identifying Google's own chrome -- navigation, static assets, image/user-content
+# proxies, tracking, `/url?` redirect wrappers -- as opposed to a cited external source. Any anchor
+# whose host matches one of these is dropped, which is what reliably isolates the real external
+# citations from the dozens of internal links Google renders on the page. Matched as a substring of
+# the lowercased host so subdomains and ccTLDs are all covered (e.g. `www.google.com`,
+# `news.google.co.uk`, `encrypted-tbn0.gstatic.com`, `lh3.googleusercontent.com`).
+_GOOGLE_HOST_MARKERS: tuple[str, ...] = (
+    "google.",
+    "gstatic.",
+    "googleusercontent.",
+    "googleapis.",
+    "googlesyndication.",
+    "googleadservices.",
+    "ggpht.",
+)
 
-# Candidate selectors for the sources/citations node *within* the root.
-_SOURCES_SELECTORS: tuple[str, ...] = ('[jsname="aioSources"]', ".AIOverview-sources")
+
+def _is_google_host(host: str) -> bool:
+    """True if `host` belongs to Google's own chrome (not a cited external source)."""
+    host = host.lower()
+    return any(marker in host for marker in _GOOGLE_HOST_MARKERS)
 
 
-def _find_first(scope: Tag, selectors: tuple[str, ...]) -> Tag | None:
-    """Return the first descendant of `scope` matched by any selector, tried in order."""
-    for selector in selectors:
-        match = scope.select_one(selector)
-        if match is not None:
-            return match
-    return None
+def _external_citation(href: str, *, base_url: str) -> str | None:
+    """Resolve `href` to an absolute http(s) URL if it points to a non-Google host, else None.
 
-
-def _normalize_url(href: str) -> str | None:
-    """Resolve an anchor `href` to an absolute http(s) URL, or None if it isn't citable.
-
-    Handles direct `http(s)://...` hrefs and Google's `/url?q=<dest>&...` redirect wrapper.
-    Relative links, `#fragment`, `javascript:`, `mailto:`, and empty hrefs are all dropped --
-    citation extraction is best-effort and must never be a source of parse errors.
+    Relative hrefs resolve against `base_url` (the captured page's final URL); Google's own links
+    -- relative nav, `/url?q=...` redirect wrappers, gstatic/googleusercontent assets -- all resolve
+    to a Google host and are dropped, as are `#fragment`, `javascript:`, and `mailto:` (non-http).
     """
-    href = href.strip()
-    if href.startswith(("http://", "https://")):
-        return href
-    if href.startswith("/url?"):
-        dest = parse_qs(urlparse(href).query).get("q", [""])[0]
-        if dest.startswith(("http://", "https://")):
-            return dest
-    return None
+    absolute = urljoin(base_url, href.strip())
+    parsed = urlparse(absolute)
+    if parsed.scheme not in ("http", "https"):
+        return None
+    host = (parsed.hostname or "").lower()
+    if not host or _is_google_host(host):
+        return None
+    return absolute
 
 
-def _extract_cited_urls(*containers: Tag | None) -> list[str]:
-    """Collect de-duped, normalized citation URLs from `<a href>` tags in `containers`.
+def _extract_answer(html: str, *, base_url: str = "") -> tuple[str, list[str]]:
+    """Parse an AI-Mode results page into (answer_text, external_cited_urls). Never raises.
 
-    First-seen order is preserved across `containers` in the order given. Missing (`None`)
-    containers are skipped rather than raising, and containers may overlap (e.g. passing both
-    a sub-node and its ancestor) -- de-duplication makes that safe, so callers can freely stack
-    a specific lookup with a broader fallback for resilience against renamed/missing nodes.
+    `answer_text` is the text of the `[role="main"]` region (where AI Mode streams its answer), or
+    the whole document's text if that region is absent. `cited_urls` is every external http(s) link
+    on the page -- excluding Google's own nav/asset/tracking/redirect domains -- normalized to
+    absolute, de-duped, and kept in document order. A missing/garbled DOM degrades to ("", []).
     """
+    soup = BeautifulSoup(html, "html.parser")
+
+    main = soup.select_one(_MAIN_SELECTOR)
+    answer_text = (main or soup).get_text(" ", strip=True)
+
     seen: set[str] = set()
-    urls: list[str] = []
-    for container in containers:
-        if container is None:
-            continue
-        for anchor in container.find_all("a", href=True):
-            normalized = _normalize_url(str(anchor["href"]))
-            if normalized is not None and normalized not in seen:
-                seen.add(normalized)
-                urls.append(normalized)
-    return urls
+    cited_urls: list[str] = []
+    for anchor in soup.find_all("a", href=True):
+        url = _external_citation(str(anchor["href"]), base_url=base_url)
+        if url is not None and url not in seen:
+            seen.add(url)
+            cited_urls.append(url)
+    return answer_text, cited_urls
 
 
 class AIOverviewsAdapter:
-    """`EngineAdapter` for Google's AI Overviews, driven through the Playwright capture seam."""
+    """`EngineAdapter` for Google's AI Mode, driven through the Playwright capture seam."""
 
     name = "google_ai_overviews"
     supports_citations = True
@@ -96,7 +108,7 @@ class AIOverviewsAdapter:
     async def probe(
         self, prompt: str, *, geo: str = "us", persona: str | None = None
     ) -> ProbeResult:
-        """Fetch a rendered SERP for `prompt` and parse its AI Overview into a `ProbeResult`.
+        """Fetch a rendered AI-Mode SERP for `prompt` and parse it into a `ProbeResult`.
 
         `geo`/`persona` flow straight through to the capturer, which owns proxy-geo and
         account-persona targeting (T09/T10) -- this adapter only parses the resulting page.
@@ -107,21 +119,7 @@ class AIOverviewsAdapter:
         page = await self._capture.fetch(prompt, surface=self.name, geo=geo, persona=persona)
         latency_ms = int((time.perf_counter() - started) * 1000)
 
-        soup = BeautifulSoup(page.html, "html.parser")
-        root = _find_first(soup, _ROOT_SELECTORS)
-
-        answer_text = ""
-        cited_urls: list[str] = []
-        if root is not None:
-            answer_node = _find_first(root, _ANSWER_SELECTORS)
-            sources_node = _find_first(root, _SOURCES_SELECTORS)
-            # Renamed/restructured answer node: fall back to the root's own text rather than an
-            # empty string, since the overview clearly exists -- just not where expected.
-            answer_text = (answer_node or root).get_text(" ", strip=True)
-            # Root is included as a trailing fallback so a renamed/missing answer or sources
-            # node still surfaces any citation links left directly under the overview root;
-            # de-duplication makes the overlap with answer_node/sources_node harmless.
-            cited_urls = _extract_cited_urls(answer_node, sources_node, root)
+        answer_text, cited_urls = _extract_answer(page.html, base_url=page.final_url)
 
         return ProbeResult(
             engine=self.name,
