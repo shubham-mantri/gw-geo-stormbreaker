@@ -1,11 +1,15 @@
-"""Tests for domain-first onboarding auto-fill (`gw_geo.onboarding.suggest`).
+"""Tests for the grounded, self-critiquing domain-first onboarding auto-fill
+(`gw_geo.onboarding.suggest`).
 
-Hermetic: the page fetcher + LLM client are both injected Protocols, so every test drives a trivial
-fake -- **no live HTTP or LLM call is ever made** (mirrors the injected-seam convention in
-`tests/ranking/test_fetch.py` / `tests/content/test_generate.py`). The fakes hand back raw markup /
-a canned tool-call dict; failure modes (fetcher raises, LLM raises, malformed payloads) assert the
-"never raise -- degrade to the domain heuristic / an empty competitor list" guarantee onboarding
-depends on.
+Hermetic: the page fetcher + the two LLM clients are injected Protocols, so **no live HTTP or LLM
+call is ever made** (mirrors the injected-seam convention in `tests/ranking/test_fetch.py` /
+`tests/content/test_generate.py`). The `ScriptedLLM` fake dispatches on the stage's structured-output
+schema (``schema is _PROFILE_SCHEMA`` / ``_DRAFT_SCHEMA`` / ``_CRITIQUE_SCHEMA``) and hands back a
+canned dict (or raises a scripted error), so a test scripts each of the three stages
+(profile -> web-search-grounded draft -> critique/refine) independently. The failure-mode tests
+assert the "never raise -- degrade to the best available result" guarantee onboarding depends on,
+and the headline test exercises the real regression: a draft carrying a duplicate acquired entity +
+a scale mismatch + a missing product category, refined by the critique into a clean set.
 """
 
 from __future__ import annotations
@@ -13,6 +17,9 @@ from __future__ import annotations
 from typing import Any
 
 from gw_geo.onboarding.suggest import (
+    _CRITIQUE_SCHEMA,
+    _DRAFT_SCHEMA,
+    _PROFILE_SCHEMA,
     BrandSuggestion,
     normalize_url,
     suggest_brand_details,
@@ -39,37 +46,52 @@ class RaisingFetcher:
         raise RuntimeError("network exploded")
 
 
-class FakeLLM:
-    """An `LLMClient` returning a canned structured dict, and recording the prompt/schema it saw."""
+def _stage(schema: Any) -> str:
+    """Which pipeline stage a `complete()` call is, keyed on the (identity of the) schema passed."""
+    if schema is _PROFILE_SCHEMA:
+        return "profile"
+    if schema is _DRAFT_SCHEMA:
+        return "draft"
+    if schema is _CRITIQUE_SCHEMA:
+        return "critique"
+    raise AssertionError(f"unexpected schema: {schema!r}")
 
-    def __init__(self, result: dict[str, Any]) -> None:
-        self._result = result
-        self.seen_prompt: str | None = None
-        self.seen_schema: dict[str, Any] | None = None
+
+class ScriptedLLM:
+    """An `LLMClient` that returns a canned dict per pipeline stage and records prompts/calls.
+
+    Construct with ``profile=``/``draft=``/``critique=`` responses; a value that is an ``Exception``
+    is raised (to simulate a failed stage), a dict is returned, and an un-scripted stage raises
+    ``RuntimeError`` (so misrouted stages are catchable via ``.calls``).
+    """
+
+    def __init__(self, **stages: Any) -> None:
+        self._stages = stages
+        self.calls: list[str] = []
+        self.prompts: dict[str, str] = {}
 
     def complete(
         self, *, system: str, prompt: str, schema: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        self.seen_prompt = prompt
-        self.seen_schema = schema
-        return self._result
+        stage = _stage(schema)
+        self.calls.append(stage)
+        self.prompts[stage] = prompt
+        if stage not in self._stages:
+            raise RuntimeError(f"no scripted {stage} response")
+        resp = self._stages[stage]
+        if isinstance(resp, BaseException):
+            raise resp
+        assert isinstance(resp, dict)
+        return resp
 
 
 class RaisingLLM:
-    """An `LLMClient` whose `complete` raises -- exercises the "empty competitors, never raise" path."""
+    """An `LLMClient` whose `complete` always raises -- exercises total LLM-unavailability degrade."""
 
     def complete(
         self, *, system: str, prompt: str, schema: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         raise RuntimeError("llm exploded")
-
-
-_NO_COMPETITORS = FakeLLM({"competitors": []})
-
-
-def _named_llm(name: str) -> FakeLLM:
-    """A `FakeLLM` that returns a fixed brand ``name`` and no competitors."""
-    return FakeLLM({"name": name, "competitors": []})
 
 
 # --- normalize_url ---------------------------------------------------------------------------
@@ -85,183 +107,266 @@ def test_normalize_url_keeps_existing_scheme() -> None:
     assert normalize_url("https://acme.com/x") == "https://acme.com/x"
 
 
-# --- brand name: from the LLM (domain + page hint), domain heuristic only when the name is empty --
+# --- pipeline wiring: profile -> draft -> critique, each grounded on the prior --------------------
 
 
-def test_llm_name_is_used_verbatim() -> None:
-    # The LLM derives the name from the domain; it wins over the domain heuristic.
-    fetcher = FakeFetcher(FetchedPage(text="body text"))
-    out = suggest_brand_details(domain="acme.com", fetcher=fetcher, llm=_named_llm("Acme Robotics"))
-    assert out.name == "Acme Robotics"
-    assert fetcher.fetched_url == "https://acme.com"  # fetched the normalized URL (for the hint)
-
-
-def test_jsonld_name_passed_as_hint_and_beats_og_and_title() -> None:
-    html = """
-    <html><head>
-      <title>Home | Some Boilerplate</title>
-      <meta property="og:site_name" content="OG Name">
-      <script type="application/ld+json">
-        {"@context":"https://schema.org","@type":"Organization","name":"Acme Robotics"}
-      </script>
-    </head><body>hi</body></html>
-    """
-    llm = _named_llm("Acme Robotics Inc")
-    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
-    assert out.name == "Acme Robotics Inc"                # name comes from the LLM
-    assert "Acme Robotics" in (llm.seen_prompt or "")     # JSON-LD name fed as the hint (beats og/title)
-
-
-def test_jsonld_nested_graph_website_passed_as_hint() -> None:
-    html = '<script type="application/ld+json">{"@graph":[{"@type":"WebSite","name":"Graph Site"}]}</script>'
-    llm = _named_llm("Graph Site")
-    suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
-    assert "Graph Site" in (llm.seen_prompt or "")
-
-
-def test_og_site_name_used_as_hint_when_no_jsonld() -> None:
-    html = '<head><meta property="og:site_name" content="Acme OG"><title>Acme | CRM</title></head>'
-    llm = _named_llm("Acme")
-    suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
-    assert "Acme OG" in (llm.seen_prompt or "")  # og:site_name beats <title> for the hint
-
-
-def test_title_hint_strips_trailing_boilerplate() -> None:
-    # The <title> hint has its " | tagline"/" - …" boilerplate stripped before it reaches the prompt.
-    for title, expected_hint, boilerplate in [
-        ("Acme | The best CRM for startups", "Acme", "The best CRM"),
-        ("Acme – Sales software", "Acme", "Sales software"),  # en dash
-    ]:
-        html = f"<head><title>{title}</title></head>"
-        llm = _named_llm("Acme")
-        suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
-        prompt = llm.seen_prompt or ""
-        assert f"'{expected_hint}'" in prompt and boilerplate not in prompt, title
-
-
-def test_visible_text_snippet_used_as_hint_when_no_markup() -> None:
-    # The real HttpxPageFetcher returns visible text only -> a bounded snippet becomes the hint.
-    llm = _named_llm("Acme")
-    suggest_brand_details(
-        domain="acme.com",
-        fetcher=FakeFetcher(FetchedPage(text="Welcome to Acme, the CRM built for teams")),
-        llm=llm,
+def test_pipeline_runs_three_stages_and_grounds_each_on_the_prior() -> None:
+    fetcher = FakeFetcher(FetchedPage(text="<head><title>Acme | The best CRM</title></head>"))
+    llm = ScriptedLLM(
+        profile={"name": "Acme Robotics", "categories": ["CRM", "sales analytics"]},
+        draft={"competitors": [{"name": "Beta", "category": "CRM", "tier": "direct"}]},
+        critique={"competitors": ["Beta", "Gamma"]},
     )
-    assert "Welcome to Acme" in (llm.seen_prompt or "")
+    out = suggest_brand_details(domain="acme.com", fetcher=fetcher, llm=llm)
+
+    assert out.name == "Acme Robotics"  # name from the profile stage (LLM), not the <title>
+    assert out.competitors == ["Beta", "Gamma"]  # final list = the critique's refined output
+    assert llm.calls == ["profile", "draft", "critique"]  # all three stages ran, in order
+    assert fetcher.fetched_url == "https://acme.com"  # normalized URL fetched for grounding
+    # The page name-hint grounds the profile prompt...
+    assert "Acme" in llm.prompts["profile"]
+    # ...the profile's category set grounds the draft prompt...
+    assert "CRM" in llm.prompts["draft"] and "sales analytics" in llm.prompts["draft"]
+    # ...and the draft's candidates ground the critique prompt.
+    assert "Beta" in llm.prompts["critique"]
 
 
-def test_no_page_hint_when_fetch_returns_none() -> None:
-    llm = _named_llm("Acme")
-    suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
-    prompt = llm.seen_prompt or ""
-    assert "acme.com" in prompt          # the domain always drives the prompt
-    assert "Hint read off" not in prompt  # no page -> no hint line
+# --- headline regression: dedupe (acquired) + demote (scale) + cover (missing category) ----------
 
 
-def test_name_falls_back_to_domain_when_llm_name_empty() -> None:
-    # LLM returns no name (visible-text page, no markup) -> the domain heuristic fills it in.
-    out = suggest_brand_details(
-        domain="acme.com",
-        fetcher=FakeFetcher(FetchedPage(text="just some visible body text, no head")),
-        llm=_NO_COMPETITORS,
+def test_critique_dedupes_acquired_demotes_scale_and_covers_categories() -> None:
+    # The respectmanufacturing.com failure modes, reproduced in one draft: a duplicate acquired
+    # entity (Nutricap Labs == NutraScience Labs, acquired 2015), a scale mismatch (enterprise-scale
+    # Sirio Pharma vs an 11-50-employee SMB shop), and only the supplements category covered.
+    llm = ScriptedLLM(
+        profile={
+            "name": "Respect Manufacturing",
+            "categories": ["supplements", "cosmetics", "skincare", "OTC topicals"],
+            "size_segment": "SMB contract manufacturer, 11-50 employees, serves small brands",
+        },
+        draft={
+            "competitors": [
+                {"name": "NutraScience Labs", "category": "supplements", "tier": "direct"},
+                {"name": "Nutricap Labs", "category": "supplements", "tier": "direct"},  # acquired
+                {"name": "Sirio Pharma", "category": "supplements", "tier": "aspirational",
+                 "segment": "enterprise"},  # scale mismatch
+                # (only supplements covered -- cosmetics/skincare/OTC missing)
+            ]
+        },
+        # The critique refines: drops the acquired dup, demotes the enterprise player, and adds
+        # coverage for the missing cosmetics/skincare category.
+        critique={
+            "competitors": ["NutraScience Labs", "Cosmetic Solutions Corp"],
+            "coverage_notes": "Dropped Nutricap (acquired by NutraScience); demoted Sirio "
+            "(enterprise); added Cosmetic Solutions for cosmetics/skincare.",
+        },
     )
-    assert out.name == "Acme"
+    out = suggest_brand_details(domain="respectmanufacturing.com", fetcher=FakeFetcher(None), llm=llm)
+
+    names = [c.lower() for c in out.competitors]
+    assert "nutricap labs" not in names  # the acquired/renamed duplicate is gone
+    assert "sirio pharma" not in names  # the scale/segment mismatch is dropped
+    assert "nutrascience labs" in names  # the surviving entity is kept
+    assert "cosmetic solutions corp" in names  # the missing category is now covered
+    assert out.competitors == ["NutraScience Labs", "Cosmetic Solutions Corp"]
+    # The critique was actually shown the raw draft -- including the entities it must reconcile.
+    critique_prompt = llm.prompts["critique"]
+    for shown in ("NutraScience Labs", "Nutricap Labs", "Sirio Pharma"):
+        assert shown in critique_prompt
+    # ...grounded against the profile's full category set (so it can check coverage).
+    assert "cosmetics" in critique_prompt and "OTC topicals" in critique_prompt
 
 
-def test_domain_heuristic_strips_www_and_tld_and_splits() -> None:
-    # When the LLM returns no name, the domain heuristic is the fallback.
-    cases = {
-        "acme.com": "Acme",
-        "https://www.acme.com/": "Acme",
-        "foo-bar.io": "Foo Bar",
-        "WWW.Globex.CO": "Globex",
-    }
-    for domain, expected in cases.items():
-        out = suggest_brand_details(
-            domain=domain, fetcher=FakeFetcher(None), llm=_NO_COMPETITORS
-        )
-        assert out.name == expected, domain
+def test_deterministic_backstop_dedupes_and_excludes_self_on_critique_output() -> None:
+    # Even if the critique leaks a case dupe or the brand itself, the deterministic clean-up catches
+    # it (parent-company dedupe is the LLM's job; this is the exact/case-insensitive backstop).
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta", "beta", "Acme", "Gamma", "GAMMA"]},
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    assert out.competitors == ["Beta", "Gamma"]  # case dupes collapsed, brand self-excluded
 
 
-def test_fetch_failure_never_raises_and_uses_domain() -> None:
-    # fetcher.fetch raising must not propagate -- onboarding still works (hint dropped, heuristic name).
-    out = suggest_brand_details(domain="acme.com", fetcher=RaisingFetcher(), llm=_NO_COMPETITORS)
-    assert out.name == "Acme"
-    assert out.competitors == []
+def test_final_list_capped_at_eight() -> None:
+    many = [f"C{i}" for i in range(12)]
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "seed"}]},
+        critique={"competitors": many},
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    assert out.competitors == many[:8]  # ordered, capped at ~8
 
 
-def test_llm_failure_falls_back_to_domain_name() -> None:
-    # LLM raising -> no name, no competitors -> domain heuristic name, empty competitors, no 5xx.
+# --- graceful degrade: each stage failing falls back to the best available result ----------------
+
+
+def test_critique_failure_falls_back_to_draft_direct_names_excluding_aspirational() -> None:
+    # Critique down -> use the draft's DIRECT-tier names; the aspirational (larger) player is still
+    # excluded, so a scale mismatch never sneaks in even without the refine pass.
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={
+            "competitors": [
+                {"name": "Beta", "tier": "direct"},
+                {"name": "Gamma", "tier": "direct"},
+                {"name": "BigCorp", "tier": "aspirational"},
+            ]
+        },
+        critique=RuntimeError("critique exploded"),
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    assert out.competitors == ["Beta", "Gamma"]  # direct-tier only; BigCorp (aspirational) dropped
+    assert llm.calls == ["profile", "draft", "critique"]  # critique was attempted, then failed
+
+
+def test_draft_failure_yields_name_but_no_competitors_and_skips_critique() -> None:
+    llm = ScriptedLLM(
+        profile={"name": "Acme Robotics", "categories": ["CRM"]},
+        draft=RuntimeError("draft exploded"),
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    assert out.name == "Acme Robotics"  # profile name still stands
+    assert out.competitors == []  # no draft -> nothing to refine
+    assert "critique" not in llm.calls  # critique is skipped when the draft is empty
+
+
+def test_profile_failure_still_drafts_and_names_from_domain() -> None:
+    # Profile down -> the draft/critique still run (profile=None), and the name falls to the domain.
+    llm = ScriptedLLM(
+        profile=RuntimeError("profile exploded"),
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta"]},
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+    assert out.name == "Acme"  # domain heuristic, since the profile gave no name
+    assert out.competitors == ["Beta"]
+    assert "No profile available" in llm.prompts["draft"]  # draft told there's no profile
+
+
+def test_fetch_failure_never_raises_and_drops_grounding() -> None:
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta"]},
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=RaisingFetcher(), llm=llm)
+    assert out.name == "Acme" and out.competitors == ["Beta"]
+    assert "Name hint" not in llm.prompts["profile"]  # no page -> no hint line
+    assert "Visible page text" not in llm.prompts["profile"]
+
+
+def test_all_llm_stages_failing_degrades_to_domain_name_and_empty() -> None:
+    # The total-failure floor == today's behavior: domain-heuristic name, no competitors, never 5xx.
     out = suggest_brand_details(domain="globex.com", fetcher=FakeFetcher(None), llm=RaisingLLM())
     assert out.name == "Globex"
     assert out.competitors == []
 
 
-# --- competitors -----------------------------------------------------------------------------
+# --- the two-client seam: research (llm) vs critic ---------------------------------------------
 
 
-def test_competitors_parsed_to_name_list() -> None:
-    llm = FakeLLM(
-        {"name": "Acme", "competitors": [{"name": "Beta", "domain": "beta.com"}, {"name": "Gamma"}]}
+def test_critic_defaults_to_llm_when_omitted() -> None:
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta", "Gamma"]},
     )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)  # no critic
+    assert out.competitors == ["Beta", "Gamma"]
+    assert llm.calls == ["profile", "draft", "critique"]  # llm handled the critique too
+
+
+def test_separate_critic_client_runs_only_the_critique_stage() -> None:
+    research = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}]},
+    )
+    critic = ScriptedLLM(critique={"competitors": ["Beta", "Gamma"]})
     out = suggest_brand_details(
-        domain="acme.com", fetcher=FakeFetcher(None), llm=llm
-    )
-    assert out.competitors == ["Beta", "Gamma"]  # names only, list[str]
-    # The LLM was actually prompted with a structured-output schema (tool-call pattern) for the domain.
-    assert llm.seen_schema is not None
-    assert "acme.com" in (llm.seen_prompt or "")
-
-
-def test_competitors_dedupe_cap_and_exclude_self() -> None:
-    llm = FakeLLM(
-        {
-            "competitors": [
-                {"name": "Beta"},
-                {"name": "beta"},  # dupe (case-insensitive)
-                {"name": "Acme"},  # the brand itself -> excluded
-                {"name": "C1"},
-                {"name": "C2"},
-                {"name": "C3"},
-                {"name": "C4"},
-                {"name": "C5"},
-                {"name": "C6"},  # would exceed the ~6 cap
-            ]
-        }
-    )
-    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
-    assert "acme" not in [c.lower() for c in out.competitors]
-    assert out.competitors == ["Beta", "C1", "C2", "C3", "C4", "C5"]  # deduped, self-excluded, ≤6
-
-
-def test_competitors_accepts_plain_string_items() -> None:
-    out = suggest_brand_details(
-        domain="acme.com", fetcher=FakeFetcher(None), llm=FakeLLM({"competitors": ["Beta", "Gamma"]})
+        domain="acme.com", fetcher=FakeFetcher(None), llm=research, critic=critic
     )
     assert out.competitors == ["Beta", "Gamma"]
+    assert research.calls == ["profile", "draft"]  # web-search client: research only
+    assert critic.calls == ["critique"]  # plain client: refine only
 
 
-def test_competitors_llm_failure_returns_empty() -> None:
-    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=RaisingLLM())
-    assert out.competitors == []  # never raises; onboarding still works with manual entry
+# --- name resolution: profile name wins, else the domain heuristic -----------------------------
 
 
-def test_competitors_malformed_payload_returns_empty() -> None:
-    for bad in ({}, {"competitors": "nope"}, {"competitors": [1, 2, 3]}, {"other": []}):
-        out = suggest_brand_details(
-            domain="acme.com", fetcher=FakeFetcher(None), llm=FakeLLM(bad)
-        )
-        assert out.competitors == [], bad
-
-
-# --- BrandSuggestion shape -------------------------------------------------------------------
-
-
-def test_brand_suggestion_shape() -> None:
-    out = suggest_brand_details(
-        domain="acme.com",
-        fetcher=FakeFetcher(FetchedPage(text="<head><title>Acme</title></head>")),
-        llm=FakeLLM({"competitors": [{"name": "Beta"}]}),
+def test_name_from_profile_when_present() -> None:
+    llm = ScriptedLLM(
+        profile={"name": "Globex Corporation", "categories": []},
+        draft={"competitors": []},
     )
+    out = suggest_brand_details(domain="globex.com", fetcher=FakeFetcher(None), llm=llm)
+    assert out.name == "Globex Corporation"
+
+
+def test_name_falls_back_to_domain_when_profile_name_blank() -> None:
+    cases = {"acme.com": "Acme", "https://www.foo-bar.io/": "Foo Bar", "WWW.Globex.CO": "Globex"}
+    for domain, expected in cases.items():
+        llm = ScriptedLLM(profile={"categories": []}, draft={"competitors": []})
+        out = suggest_brand_details(domain=domain, fetcher=FakeFetcher(None), llm=llm)
+        assert out.name == expected, domain
+
+
+# --- profile grounding: the fetched page (hint + visible text) reaches the profile prompt --------
+
+
+def test_jsonld_name_and_page_text_ground_the_profile_prompt() -> None:
+    html = """
+    <html><head>
+      <title>Home | Boilerplate</title>
+      <script type="application/ld+json">
+        {"@context":"https://schema.org","@type":"Organization","name":"Acme Robotics"}
+      </script>
+    </head><body>We build supplements and cosmetics for small brands.</body></html>
+    """
+    llm = ScriptedLLM(
+        profile={"name": "Acme Robotics", "categories": ["supplements"]},
+        draft={"competitors": []},
+    )
+    suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(FetchedPage(text=html)), llm=llm)
+    profile_prompt = llm.prompts["profile"]
+    assert "Acme Robotics" in profile_prompt  # JSON-LD name fed as the hint (beats <title>)
+    assert "supplements and cosmetics" in profile_prompt  # visible page text excerpt grounds it
+
+
+def test_visible_text_snippet_grounds_profile_when_no_markup() -> None:
+    # The real HttpxPageFetcher returns visible text only -> a bounded snippet becomes the grounding.
+    llm = ScriptedLLM(profile={"name": "Acme", "categories": []}, draft={"competitors": []})
+    suggest_brand_details(
+        domain="acme.com",
+        fetcher=FakeFetcher(FetchedPage(text="Welcome to Acme, the CRM built for teams")),
+        llm=llm,
+    )
+    assert "Welcome to Acme" in llm.prompts["profile"]
+
+
+# --- malformed payloads degrade to the best available result -----------------------------------
+
+
+def test_malformed_profile_and_draft_degrade_to_domain_and_empty() -> None:
+    # A non-dict profile -> None; a draft with no usable competitors -> [] -> critique skipped.
+    for draft_payload in ({}, {"competitors": "nope"}, {"competitors": [1, 2, 3]}, {"other": []}):
+        llm = ScriptedLLM(profile={"not": "a profile"}, draft=draft_payload)
+        out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
+        assert out.name == "Acme", draft_payload  # domain heuristic
+        assert out.competitors == [], draft_payload
+
+
+# --- BrandSuggestion shape (unchanged response contract) ---------------------------------------
+
+
+def test_brand_suggestion_shape_unchanged() -> None:
+    llm = ScriptedLLM(
+        profile={"name": "Acme", "categories": ["CRM"]},
+        draft={"competitors": [{"name": "Beta"}]},
+        critique={"competitors": ["Beta"]},
+    )
+    out = suggest_brand_details(domain="acme.com", fetcher=FakeFetcher(None), llm=llm)
     assert isinstance(out, BrandSuggestion)
     assert out.model_dump() == {"name": "Acme", "domain": "acme.com", "competitors": ["Beta"]}

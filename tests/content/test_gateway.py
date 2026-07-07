@@ -19,6 +19,7 @@ from gw_geo.content.gateway import (
     build_claim_extractor,
     build_embedder,
     build_llm_client,
+    build_local_claude_client,
     build_portkey_client,
     build_voice_scorer,
 )
@@ -352,3 +353,33 @@ def test_llm_voice_scorer_local_seam_returns_dict() -> None:
     _system, prompt, schema = stub.calls[0]
     assert isinstance(schema, dict) and set(schema["properties"]) == {"score", "violations"}
     assert "synergy" in prompt  # banned term carried into the prompt
+
+
+# --------------------------------------------------------------------------------------------
+# allow_web_search passthrough (opt-in, default off -- only meaningful on the local_claude path)
+# --------------------------------------------------------------------------------------------
+
+
+def test_build_local_claude_client_web_search_flag_threads_and_defaults_off() -> None:
+    on = build_local_claude_client(Settings(), allow_web_search=True)
+    off = build_local_claude_client(Settings())  # default
+    assert on._allow_web_search is True
+    assert off._allow_web_search is False  # every non-suggest caller keeps tools-off behavior
+
+
+def test_build_llm_client_local_claude_threads_web_search_flag() -> None:
+    client = build_llm_client(Settings(llm_gateway="local_claude"), allow_web_search=True)
+    assert isinstance(client, LocalClaudeCliClient) and client._allow_web_search is True
+
+
+def test_build_llm_client_web_search_flag_is_noop_for_portkey_and_direct() -> None:
+    # No local CLI web search off the local_claude path -> the flag is a harmless no-op (graceful
+    # degrade): the same plain clients come back, so suggest still runs (just without web grounding).
+    portkey = build_llm_client(
+        Settings(llm_gateway="portkey", portkey_api_key="pk"), allow_web_search=True
+    )
+    direct = build_llm_client(
+        Settings(llm_gateway="direct", anthropic_api_key="a"), allow_web_search=True
+    )
+    assert isinstance(portkey, PortkeyLLMClient)
+    assert isinstance(direct, AnthropicLLMClient)

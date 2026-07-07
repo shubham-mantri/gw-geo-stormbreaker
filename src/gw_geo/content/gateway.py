@@ -76,32 +76,45 @@ def build_portkey_client(settings: Settings) -> PortkeyClient | None:
 
 
 def build_local_claude_client(
-    settings: Settings, *, model: str | None = None
+    settings: Settings, *, model: str | None = None, allow_web_search: bool = False
 ) -> LocalClaudeCliClient:
     """The local `claude -p` `LLMClient` (Claude Max subscription, $0), built from `claude_cli_*`.
 
     `model` overrides the CLI `--model`; when `None` it keeps today's default
     (`settings.claude_cli_model`), so existing callers are unchanged. Call sites with a DB session
     pass the operator-selected model via `resolve_chat_model`.
+
+    `allow_web_search` (default `False`) opts the CLI into a **real web search** (`--allowedTools
+    WebSearch`, $0 on the subscription) for grounded research -- used only by the onboarding
+    competitor-suggest research/draft stage. Off by default, so every other call site is unchanged.
     """
     return LocalClaudeCliClient(
         bin=settings.claude_cli_bin,
         model=model if model is not None else settings.claude_cli_model,
         config_dir=settings.claude_cli_config_dir,
         timeout=settings.claude_cli_timeout_s,
+        allow_web_search=allow_web_search,
     )
 
 
-def build_llm_client(settings: Settings, *, model: str | None = None) -> LLMClient:
+def build_llm_client(
+    settings: Settings, *, model: str | None = None, allow_web_search: bool = False
+) -> LLMClient:
     """The generation `LLMClient`: local Claude when `local_claude`, else Portkey (keyed) or direct.
 
     `model` (the DB-resolved chat model, `resolve_chat_model`) is threaded through whichever gateway
     is selected; when `None` each path keeps its prior default (`settings.claude_cli_model` local,
     `DEFAULT_CHAT_MODEL` Portkey, the client's own `_DEFAULT_MODEL` direct), so existing
     callers/tests are unchanged.
+
+    `allow_web_search` (default `False`) is honored **only on the `local_claude` path** -- it turns
+    on the CLI's real WebSearch tool for grounded onboarding research. Portkey/direct have no local
+    CLI web search, so the flag is a no-op there (they return their usual plain client); the suggest
+    pipeline still runs its hardened prompt + critique pass, just without web grounding (graceful
+    degrade). Every non-suggest caller omits the flag and is unaffected.
     """
     if settings.llm_gateway == "local_claude":
-        return build_local_claude_client(settings, model=model)
+        return build_local_claude_client(settings, model=model, allow_web_search=allow_web_search)
     client = build_portkey_client(settings)
     if client is not None:
         return PortkeyLLMClient(client, model=model if model is not None else DEFAULT_CHAT_MODEL)

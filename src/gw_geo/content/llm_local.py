@@ -25,6 +25,15 @@ with the **prompt on stdin**. Key points:
   child on expiry.
 * A neutral `cwd` (the system temp dir) keeps a stray project `CLAUDE.md` from being auto-loaded.
 
+**Optional web search (`allow_web_search=True`, M5 grounded onboarding suggest).** When enabled,
+the argv swaps ``--tools ""`` for ``--allowedTools WebSearch`` so the model can perform a *real*
+web search on the user's Max subscription ($0) and ground its answer in current, sourced facts.
+The default (`False`) is **byte-for-byte identical** to the recipe above, so every other call site
+(content generation, guardrails, the answer-extractor) is unaffected -- web search is strictly
+opt-in. With WebSearch on, the model emits tool calls and then a final answer; `--json-schema` may
+or may not bind that final result, so callers must *also* ask for the exact JSON shape in the
+prompt -- the greedy brace-extract fallback in `_parse_structured` then still recovers the dict.
+
 Hermetic: the subprocess call is an injected `runner` seam, so the test suite patches it and no
 live `claude` process is ever spawned (mirrors the injected-transport convention used by the
 Portkey / Anthropic clients). `complete` raises `RuntimeError` on a non-zero exit, an `is_error`
@@ -90,12 +99,14 @@ class LocalClaudeCliClient:
         model: str = "sonnet",
         config_dir: str = "~/.asterisk/Work",
         timeout: float = 300.0,
+        allow_web_search: bool = False,
         runner: CliRunner | None = None,
     ) -> None:
         self._bin = bin
         self._model = model
         self._config_dir = config_dir
         self._timeout = timeout
+        self._allow_web_search = allow_web_search
         self._runner: CliRunner = runner if runner is not None else _run_claude
 
     def complete(
@@ -135,7 +146,7 @@ class LocalClaudeCliClient:
         return self._parse_structured(result_text)
 
     def _build_argv(self, *, system: str, schema: dict[str, Any]) -> list[str]:
-        return [
+        argv = [
             self._bin,
             "-p",
             "--model",
@@ -144,12 +155,21 @@ class LocalClaudeCliClient:
             "json",
             "--system-prompt",
             system,
-            "--tools",
-            "",
+        ]
+        # Web-search opt-in: `--allowedTools WebSearch` enables the (only) tool; otherwise `--tools
+        # ""` disables everything (the default, byte-for-byte unchanged for all non-suggest callers).
+        # The two are mutually exclusive here -- combining `--tools ""` with `--allowedTools` would
+        # re-disable the tool.
+        if self._allow_web_search:
+            argv += ["--allowedTools", "WebSearch"]
+        else:
+            argv += ["--tools", ""]
+        argv += [
             "--no-session-persistence",
             "--json-schema",
             json.dumps(schema),
         ]
+        return argv
 
     def _child_env(self) -> dict[str, str]:
         """The child env: inherit `os.environ`, point `CLAUDE_CONFIG_DIR` at the Max profile, and

@@ -71,33 +71,47 @@ _DEFAULT_RANGE_DAYS = 30
 
 @dataclass(frozen=True)
 class BrandSuggestDeps:
-    """The injected collaborators for ``POST /brands/suggest``: the page fetcher + LLM client.
+    """The injected collaborators for ``POST /brands/suggest``: the page fetcher + two LLM clients.
 
-    Bundled so a test overrides one dependency (:func:`get_brand_suggest_deps`) with a single fake,
-    the same seam ``routers/content.py`` uses for its ``ContentService``.
+    ``llm`` drives the profile + draft research stages (web-search-enabled on the local-Claude
+    gateway); ``critic`` drives the (web-search-free) critique/refine stage. Bundled so a test
+    overrides one dependency (:func:`get_brand_suggest_deps`) with hermetic fakes, the same seam
+    ``routers/content.py`` uses for its ``ContentService``.
     """
 
     fetcher: PageFetcher
     llm: LLMClient
+    critic: LLMClient
 
 
 def get_brand_suggest_deps(
     settings: Annotated[Settings, Depends(get_settings_dep)],
     session: Annotated[SASession, Depends(get_db_session)],
 ) -> BrandSuggestDeps:
-    """Injected fetcher + LLM for ``POST /brands/suggest`` -- the real, config-wired collaborators.
+    """Injected fetcher + research/critic LLMs for ``POST /brands/suggest`` -- the real, config-wired
+    collaborators.
 
-    The default is the *live* pairing (SSRF-guarded :class:`~gw_geo.ranking.fetch.HttpxPageFetcher`
-    + the gateway-selected :class:`~gw_geo.content.generate.LLMClient`), unlike the raising
+    The default is the *live* trio (SSRF-guarded :class:`~gw_geo.ranking.fetch.HttpxPageFetcher` +
+    two gateway-selected :class:`~gw_geo.content.generate.LLMClient`\\ s), unlike the raising
     ``content.get_content_service`` default, because constructing these opens **no** connection
     (``HttpxPageFetcher`` only stores config; ``build_llm_client`` returns a client that connects
     lazily on first ``complete``), so it is safe to build at request time. The chat model is the
     DB-stored, operator-selectable one for the active gateway (``resolve_chat_model``; falls back to
-    today's constants when unset). Tests override it with hermetic fakes via
+    today's constants when unset).
+
+    On the ``local_claude`` gateway the research client is built with ``allow_web_search=True`` so
+    the profile/draft stages ground on a real ($0) web search; the critic client is plain. On
+    ``portkey``/``direct`` there is no local CLI web search, so the flag is a no-op and both clients
+    are plain -- suggest still runs the hardened prompt + critique pass, just without web grounding
+    (graceful degrade). Tests override this with hermetic fakes via
     ``app.dependency_overrides[get_brand_suggest_deps]`` -- no live HTTP/LLM call.
     """
     model = resolve_chat_model(session, gateway=settings.llm_gateway, settings=settings)
-    return BrandSuggestDeps(fetcher=HttpxPageFetcher(), llm=build_llm_client(settings, model=model))
+    return BrandSuggestDeps(
+        fetcher=HttpxPageFetcher(),
+        llm=build_llm_client(settings, model=model, allow_web_search=True),
+        critic=build_llm_client(settings, model=model),
+    )
 
 
 def _since_until(range_param: str | None) -> tuple[str, str]:
@@ -205,7 +219,9 @@ def suggest_brand(
     Registered before the ``/brands/{brand_id}/...`` routes so the static ``/brands/suggest`` path is
     matched literally, never captured as a ``brand_id`` path param.
     """
-    return suggest_brand_details(domain=body.domain, fetcher=deps.fetcher, llm=deps.llm)
+    return suggest_brand_details(
+        domain=body.domain, fetcher=deps.fetcher, llm=deps.llm, critic=deps.critic
+    )
 
 
 @router.get("/brands/{brand_id}/overview", response_model=OverviewOut)

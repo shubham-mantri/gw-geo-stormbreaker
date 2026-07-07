@@ -107,6 +107,32 @@ def test_argv_shape_matches_recipe() -> None:
     assert runner.stdin == b"the prompt"
 
 
+def test_default_disables_tools_and_omits_web_search() -> None:
+    # allow_web_search defaults to False -> byte-for-byte the tools-off recipe (unchanged for every
+    # non-suggest caller: content gen, guardrails, extractor).
+    runner = FakeRunner(stdout=_envelope(json.dumps({"x": 1})))
+    LocalClaudeCliClient(runner=runner).complete(system="s", prompt="p", schema={"type": "object"})
+    argv = runner.argv or []
+    assert argv[argv.index("--tools") + 1] == ""  # tools disabled
+    assert "--allowedTools" not in argv and "WebSearch" not in argv
+
+
+def test_allow_web_search_uses_allowedtools_and_omits_tools_off() -> None:
+    # allow_web_search=True swaps `--tools ""` for `--allowedTools WebSearch` (real $0 web search).
+    runner = FakeRunner(stdout=_envelope(json.dumps({"x": 1})))
+    LocalClaudeCliClient(allow_web_search=True, runner=runner).complete(
+        system="s", prompt="p", schema={"type": "object"}
+    )
+    argv = runner.argv or []
+    assert argv[argv.index("--allowedTools") + 1] == "WebSearch"
+    assert "--tools" not in argv  # must NOT also pass `--tools ""` (that re-disables the tool)
+    # Everything else is unchanged -- still headless JSON with the schema and prompt-on-stdin.
+    assert argv[argv.index("--output-format") + 1] == "json"
+    assert "--no-session-persistence" in argv
+    assert json.loads(argv[argv.index("--json-schema") + 1]) == {"type": "object"}
+    assert runner.stdin == b"p"
+
+
 def test_child_env_sets_config_dir_and_removes_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-be-removed")
     monkeypatch.setenv("PATH", "/usr/bin")
