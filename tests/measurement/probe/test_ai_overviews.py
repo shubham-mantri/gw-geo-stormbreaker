@@ -77,6 +77,23 @@ def test_extract_answer_falls_back_to_whole_document_without_main_region():
     assert cited_urls == ["https://example.com/x"]  # google host dropped even without a main region
 
 
+def test_extract_answer_falls_back_to_body_when_main_region_is_empty():
+    """Real AI Mode leaves `[role="main"]` PRESENT-but-EMPTY and streams the answer into other
+    (obfuscated-class) divs -> we must fall back to the <body> text, not return the empty region."""
+    html = (
+        "<html><body>"
+        "<div role='main'></div>"  # present but empty, exactly as on the live AI Mode page
+        "<div class='n6owBd'>Acme Corp is a strong choice for AI SEO.</div>"
+        "<a href='https://vendor.example/post'>source</a>"
+        "<a href='https://www.google.com/search?q=x'>nav</a>"
+        "</body></html>"
+    )
+    answer_text, cited_urls = _extract_answer(html, base_url="https://www.google.com/")
+
+    assert "Acme Corp" in answer_text  # body fallback captured the streamed answer
+    assert cited_urls == ["https://vendor.example/post"]  # external only, google nav dropped
+
+
 def test_extract_answer_resolves_relative_external_links_against_base_url():
     """A relative href on a non-Google-derived base URL normalizes to an absolute citation."""
     answer_text, cited_urls = _extract_answer(

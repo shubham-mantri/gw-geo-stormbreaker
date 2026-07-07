@@ -76,15 +76,18 @@ def _external_citation(href: str, *, base_url: str) -> str | None:
 def _extract_answer(html: str, *, base_url: str = "") -> tuple[str, list[str]]:
     """Parse an AI-Mode results page into (answer_text, external_cited_urls). Never raises.
 
-    `answer_text` is the text of the `[role="main"]` region (where AI Mode streams its answer), or
-    the whole document's text if that region is absent. `cited_urls` is every external http(s) link
-    on the page -- excluding Google's own nav/asset/tracking/redirect domains -- normalized to
-    absolute, de-duped, and kept in document order. A missing/garbled DOM degrades to ("", []).
+    `answer_text` is the text of the `[role="main"]` region; real AI Mode leaves that landmark
+    EMPTY and streams the answer into obfuscated-class divs, so when it is empty (or absent) we fall
+    back to the `<body>` (whole-document) text rather than returning nothing. `cited_urls` is every
+    external http(s) link on the page -- excluding Google's own nav/asset/tracking/redirect domains
+    -- normalized to absolute, de-duped, and kept in document order. A garbled DOM degrades to ("", []).
     """
     soup = BeautifulSoup(html, "html.parser")
 
     main = soup.select_one(_MAIN_SELECTOR)
-    answer_text = (main or soup).get_text(" ", strip=True)
+    answer_text = main.get_text(" ", strip=True) if main is not None else ""
+    if not answer_text:
+        answer_text = (soup.body or soup).get_text(" ", strip=True)
 
     seen: set[str] = set()
     cited_urls: list[str] = []

@@ -56,12 +56,14 @@ _COMPOSER_SELECTORS: dict[str, tuple[str, ...]] = {
         "div[contenteditable='true']",
     ),
 }
-# The container whose streamed text we wait to stop growing before capturing. For AI Mode the whole
-# answer renders into the SERP's `[role='main']` region; for chat it's the assistant/answer node.
+# The container whose streamed text we wait to stop growing before capturing. For chat it's the
+# assistant/answer node. For AI Mode the answer streams into obfuscated-class divs and Google's
+# `[role='main']` landmark stays EMPTY, so we settle on `body` -- its text grows as the answer
+# streams, which is what actually lets us detect completion (rather than always hitting the timeout).
 _ANSWER_SELECTORS: dict[str, str] = {
     "chatgpt": '[data-message-author-role="assistant"]',
     "grok": '[data-testid="grok-answer"]',
-    "google_ai_overviews": "[role='main']",
+    "google_ai_overviews": "body",
 }
 _CONSENT_SELECTORS: dict[str, tuple[str, ...]] = {
     "google_ai_overviews": (

@@ -166,8 +166,9 @@ async def test_google_uses_ai_mode_direct_url_and_does_not_type() -> None:
     assert session.opened_urls == ["https://www.google.com/search?q=best+crm+for+smb&udm=50"]
     # No typing: AI Mode answers from the direct URL, so submit() (type + Enter) is never called.
     assert session.submits == []
-    # It snapshots the streamed answer region (`[role='main']`) instead.
-    assert session.snapshots == ["[role='main']"]
+    # It snapshots waiting on `body` (AI Mode's `[role='main']` landmark stays empty; the answer
+    # streams into the body), instead of typing.
+    assert session.snapshots == ["body"]
 
 
 async def test_unknown_surface_raises_without_opening_a_session() -> None:
