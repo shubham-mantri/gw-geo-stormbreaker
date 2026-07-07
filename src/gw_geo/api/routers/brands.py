@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from sqlalchemy.orm import Session as SASession
 
 from gw_geo.api.auth import Principal
@@ -39,8 +39,9 @@ from gw_geo.api.schemas import (
     BrandCreate,
     BrandCreated,
     BrandOut,
-    BrandSuggestion,
     BrandSuggestRequest,
+    BrandSuggestStarted,
+    BrandSuggestStatus,
     MeasureAccepted,
     MeasureTriggerRequest,
     OpportunityRefreshAccepted,
@@ -58,7 +59,7 @@ from gw_geo.content.gateway import build_llm_client, resolve_chat_model
 from gw_geo.content.generate import LLMClient
 from gw_geo.measurement import feed
 from gw_geo.measurement.trigger import run_measurement_job
-from gw_geo.onboarding.suggest import suggest_brand_details
+from gw_geo.onboarding.jobs import SuggestJobStore, run_suggest_job
 from gw_geo.orchestration.opportunity_gen import run_opportunity_refresh_job
 from gw_geo.orchestration.ranking_gen import run_ranking_refresh_job
 from gw_geo.ranking.fetch import HttpxPageFetcher, PageFetcher
@@ -112,6 +113,17 @@ def get_brand_suggest_deps(
         llm=build_llm_client(settings, model=model, allow_web_search=True),
         critic=build_llm_client(settings, model=model),
     )
+
+
+def get_suggest_job_store(request: Request) -> SuggestJobStore:
+    """The process-local async-suggest job store, created once in ``create_app`` (on ``app.state``).
+
+    Read off ``app.state`` (like ``settings``/``db_engine``) so both ``POST /brands/suggest`` and
+    ``GET /brands/suggest/status/{job_id}`` share one store, and a test can point them at a fresh
+    store via ``app.dependency_overrides[get_suggest_job_store]`` if it wants isolation.
+    """
+    store: SuggestJobStore = request.app.state.suggest_jobs
+    return store
 
 
 def _since_until(range_param: str | None) -> tuple[str, str]:
@@ -196,31 +208,84 @@ def create_brand(
 
 @router.post(
     "/brands/suggest",
-    response_model=BrandSuggestion,
+    status_code=202,
+    response_model=BrandSuggestStarted,
     dependencies=[Depends(require_role("editor"))],
 )
 def suggest_brand(
     body: BrandSuggestRequest,
+    background_tasks: BackgroundTasks,
     deps: Annotated[BrandSuggestDeps, Depends(get_brand_suggest_deps)],
-) -> BrandSuggestion:
-    """``POST /brands/suggest`` (M5 domain-first onboarding) -- auto-fill a brand from its domain.
+    store: Annotated[SuggestJobStore, Depends(get_suggest_job_store)],
+) -> BrandSuggestStarted:
+    """``POST /brands/suggest`` (M5 domain-first onboarding) -- **start** the auto-fill lookup.
 
-    From the posted ``domain``, reads the brand **name** off the live site (JSON-LD/``og:site_name``/
-    ``<title>``, else a domain heuristic) and asks the LLM for likely **competitors** -- both returned
-    as editable suggestions. Requires ``role >= editor`` (a ``viewer`` -> **403**, an unauthenticated
-    caller -> **401**), matching ``POST /brands``'s principal requirement (the user who will onboard
-    the brand); ``tenant_id`` is derived from the token. Performs **no DB write** -- pure read/suggest.
+    From the posted ``domain``, the grounded pipeline reads the brand **name** off the live site
+    (JSON-LD/``og:site_name``/``<title>``, else a domain heuristic) and researches likely
+    **competitors** (profile -> web-search-grounded draft -> critique/refine) -- all editable
+    suggestions. That pipeline is sync and takes ~1-2 min, far longer than a proxy holds a
+    connection, so it is **not** run inline: this seeds a job, schedules the pipeline onto a
+    background task, and returns **202** ``{job_id}`` immediately. The client polls
+    ``GET /brands/suggest/status/{job_id}`` for live stage progress + the eventual result.
 
-    Never surfaces a 5xx from a dead site or an unconfigured/failing LLM: :func:`suggest_brand_details`
-    is total, degrading to the domain heuristic + an empty competitor list, so onboarding always
-    proceeds to manual entry. The only network touched is the user-supplied domain, via the injected
+    The pipeline is sync+blocking, so ``BackgroundTasks`` runs it in Starlette's threadpool (off the
+    event loop) -- status polls are served concurrently rather than queuing behind it. The job's
+    ``on_progress`` callback streams each stage into the store under its lock. A pipeline failure is
+    caught by the runner and stored as ``status="error"`` (never a 5xx): onboarding always proceeds
+    to manual entry. The only network touched is the user-supplied domain, via the injected
     SSRF-guarded fetcher (see :func:`get_brand_suggest_deps`).
+
+    Requires ``role >= editor`` (a ``viewer`` -> **403**, an unauthenticated caller -> **401**),
+    matching ``POST /brands``'s principal requirement; ``tenant_id`` is derived from the token.
+    Performs **no DB write** -- pure read/suggest.
 
     Registered before the ``/brands/{brand_id}/...`` routes so the static ``/brands/suggest`` path is
     matched literally, never captured as a ``brand_id`` path param.
     """
-    return suggest_brand_details(
-        domain=body.domain, fetcher=deps.fetcher, llm=deps.llm, critic=deps.critic
+    job_id = store.create()
+    background_tasks.add_task(
+        run_suggest_job,
+        store,
+        job_id,
+        domain=body.domain,
+        fetcher=deps.fetcher,
+        llm=deps.llm,
+        critic=deps.critic,
+    )
+    return BrandSuggestStarted(job_id=job_id)
+
+
+@router.get(
+    "/brands/suggest/status/{job_id}",
+    response_model=BrandSuggestStatus,
+    dependencies=[Depends(require_role("editor"))],
+)
+def suggest_brand_status(
+    job_id: str,
+    store: Annotated[SuggestJobStore, Depends(get_suggest_job_store)],
+) -> BrandSuggestStatus:
+    """``GET /brands/suggest/status/{job_id}`` (M5) -- poll an async suggest job's live state.
+
+    Returns the job's ``status`` (``running``/``done``/``error``), its current ``stage``/``label``
+    (for the onboarding progress UI), and -- once ``done`` -- the :class:`BrandSuggestion` result
+    (or, on ``error``, a message the client silently falls back on). An unknown ``job_id`` (never
+    started, or lost on a server reload) raises :class:`LookupError` -> **404**, on which the client
+    restarts the lookup.
+
+    Requires ``role >= editor`` (a ``viewer`` -> **403**, unauthenticated -> **401**), same as the
+    start endpoint. Kept under ``/brands/suggest/...`` (a literal ``suggest`` segment, registered
+    before the dynamic ``/brands/{brand_id}/...`` routes) so the existing ``/brands/*`` proxy rule
+    covers it and it is never captured as a ``brand_id``.
+    """
+    job = store.get(job_id)
+    if job is None:
+        raise LookupError(f"suggest job {job_id!r} not found")
+    return BrandSuggestStatus(
+        status=job.status,
+        stage=job.stage,
+        label=job.label,
+        result=job.result,
+        error=job.error,
     )
 
 

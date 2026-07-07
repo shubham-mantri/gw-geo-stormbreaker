@@ -27,6 +27,7 @@ import {
 import type {
   Alert,
   Brand,
+  BrandSuggestStatus,
   ContentGenerateResponse,
   LlmModelConfig,
   MeasureAccepted,
@@ -123,8 +124,41 @@ const DEFAULTS: Required<MockApiOverrides> = {
  * Install a fake `apiClient`. Every method resolves to the override (or a
  * default). Returns the fake client so a test can assert on / tweak it.
  */
+/**
+ * Canned progression for the async domain-first suggest: two `running` stages then `done` with a
+ * seeded `BrandSuggestion`. `getBrandSuggestStatus` walks this list one step per poll, so a wizard
+ * test can drive the visible stage forward with fake timers and assert the competitors are seeded
+ * on `done`.
+ */
+const SUGGEST_PROGRESSION: BrandSuggestStatus[] = [
+  {
+    status: "running",
+    stage: "profiling",
+    label: "Analyzing your brand and product categories",
+    result: null,
+    error: null,
+  },
+  {
+    status: "running",
+    stage: "researching",
+    label: "Researching competitors across the web",
+    result: null,
+    error: null,
+  },
+  {
+    status: "done",
+    stage: "done",
+    label: "Done",
+    result: { name: "Acme", domain: "acme.com", competitors: ["Beta"] },
+    error: null,
+  },
+];
+
 export function mockApi(overrides: MockApiOverrides = {}): ApiClient {
   const data = { ...DEFAULTS, ...overrides };
+
+  // Per-client state for the simulated async suggest job (reset on each startBrandSuggest).
+  let suggestPoll = 0;
 
   const client: ApiClient = {
     brands: () => Promise.resolve(data.brands),
@@ -144,8 +178,15 @@ export function mockApi(overrides: MockApiOverrides = {}): ApiClient {
     publishContent: () =>
       Promise.resolve({ status: "published", published_url: "https://hosted.gwgeo.io/p/c1" }),
     createBrand: () => Promise.resolve({ id: "new-brand" }),
-    suggestBrand: (domain) =>
-      Promise.resolve({ name: "Acme", domain, competitors: ["Beta"] }),
+    startBrandSuggest: () => {
+      suggestPoll = 0;
+      return Promise.resolve({ job_id: "job-1" });
+    },
+    getBrandSuggestStatus: () => {
+      const i = Math.min(suggestPoll, SUGGEST_PROGRESSION.length - 1);
+      suggestPoll += 1;
+      return Promise.resolve(SUGGEST_PROGRESSION[i]);
+    },
     measureBrand: (brandId) => Promise.resolve({ ...data.measure, brand_id: brandId }),
     savePrompts: (_brandId, prompts) => Promise.resolve(prompts),
     connectIntegration: () => Promise.resolve({ status: "connected" }),

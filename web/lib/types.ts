@@ -23,6 +23,27 @@ export type BrandSuggestion = {
   competitors: string[];
 };
 
+/**
+ * `POST /brands/suggest` → **202** (mirrors the backend `BrandSuggestStarted`). The grounded
+ * competitor lookup takes ~1-2 min, so it runs async: the POST returns a `job_id` immediately and
+ * the client polls `getBrandSuggestStatus` until the job is `done`/`error`.
+ */
+export type BrandSuggestStarted = { job_id: string };
+
+/**
+ * `GET /brands/suggest/status/{job_id}` (mirrors the backend `BrandSuggestStatus`): the async
+ * lookup job's live state. `stage`/`label` drive the onboarding progress UI (fetching → profiling →
+ * researching → refining → done). `result` is populated only when `status === "done"`; `error` only
+ * on `"error"` (on which the wizard silently falls back to manual entry).
+ */
+export type BrandSuggestStatus = {
+  status: "running" | "done" | "error";
+  stage: string;
+  label: string;
+  result: BrandSuggestion | null;
+  error: string | null;
+};
+
 // ── Measurement trigger (W2) ──────────────────────────────────────────────────
 /**
  * `POST /brands/{id}/measure` body — all optional run overrides (mirrors the
