@@ -48,6 +48,11 @@ def _hermetic_wiring_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         # can't be flipped by a host that exports GEO_RAW_ARCHIVE_BACKEND=local.
         "GEO_RAW_ARCHIVE_BACKEND",
         "GEO_RAW_ARCHIVE_DIR",
+        # Keep the capture-backend selection deterministic: a host exporting
+        # GEO_CAPTURE_BACKEND=local must not make a default `Settings()` build a local browser.
+        "GEO_CAPTURE_BACKEND",
+        "GEO_LOCAL_BROWSER_PROFILE_DIR",
+        "GEO_LOCAL_BROWSER_CHANNEL",
     ):
         monkeypatch.delenv(var, raising=False)
     yield
@@ -147,6 +152,61 @@ def test_registers_playwright_engines_with_capture():
     """The three Playwright surfaces register when a `CaptureClient` is injected."""
     rt = build_runtime(Settings(), capture=_capture())
     assert {"google_ai_overviews", "chatgpt", "grok"} <= set(rt["engines"])
+
+
+# --- M5 local browser capture: capture-backend selection -------------------------------------
+
+
+def test_default_capture_backend_none_registers_no_playwright_engines(clean_registry):
+    """`capture_backend="none"` (default) builds no capturer -> the 3 surfaces stay unregistered."""
+    rt = build_runtime(Settings())  # default backend, no injected capture, no fleet refs
+    assert not ({"google_ai_overviews", "chatgpt", "grok"} & set(rt["engines"]))
+
+
+def test_build_runtime_selects_local_capture_when_backend_local(clean_registry, monkeypatch):
+    """`capture_backend="local"` wires the 3 Playwright surfaces to a `LocalCaptureClient`.
+
+    `_build_local_capture` is patched to a fake so no real browser/profile is touched -- this pins
+    only the selection wiring (the LocalCaptureClient unit is tested in tests/capture/test_local.py).
+    """
+    built: list[Settings] = []
+
+    def fake_build_local(settings):
+        built.append(settings)
+        return _capture()
+
+    monkeypatch.setattr("gw_geo.common.wiring._build_local_capture", fake_build_local)
+    rt = build_runtime(Settings(capture_backend="local", local_browser_profile_dir="/tmp/p"))
+
+    assert len(built) == 1  # the local builder was consulted
+    assert {"google_ai_overviews", "chatgpt", "grok"} <= set(rt["engines"])
+
+
+def test_injected_capture_wins_over_local_backend(clean_registry, monkeypatch):
+    """An injected `capture=` always overrides `capture_backend="local"` (the test seam wins)."""
+
+    def boom(settings):
+        raise AssertionError("_build_local_capture must not be called when capture is injected")
+
+    monkeypatch.setattr("gw_geo.common.wiring._build_local_capture", boom)
+    rt = build_runtime(Settings(capture_backend="local"), capture=_capture())
+    assert {"google_ai_overviews", "chatgpt", "grok"} <= set(rt["engines"])
+
+
+def test_build_local_capture_builds_local_client_without_a_browser(clean_registry):
+    """`_build_local_capture` returns a `LocalCaptureClient` from settings; nothing launches."""
+    from gw_geo.capture.local import LocalCaptureClient
+    from gw_geo.common.wiring import _build_local_capture
+
+    client = _build_local_capture(
+        Settings(
+            capture_backend="local",
+            local_browser_profile_dir="/tmp/p",
+            local_browser_channel="chrome",
+            playwright_headless=True,
+        )
+    )
+    assert isinstance(client, LocalCaptureClient)
 
 
 # --- W2 live wiring: local-filesystem archive + archive-backend selection --------------------

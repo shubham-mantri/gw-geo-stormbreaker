@@ -44,3 +44,21 @@ def test_m3_env_override(monkeypatch):
     s = Settings()
     assert s.ranking_model_type == "logreg"
     assert s.originality_threshold == 0.15
+
+
+def test_m5_local_capture_defaults():
+    """LOCAL browser capture is off by default (hermetic): no browser is built for Settings()."""
+    s = Settings()
+    assert s.capture_backend == "none"          # "none" | "local" | "live"
+    assert s.local_browser_profile_dir == ""
+    assert s.local_browser_channel == "chrome"
+
+
+def test_m5_local_capture_env_override(monkeypatch):
+    monkeypatch.setenv("GEO_CAPTURE_BACKEND", "local")
+    monkeypatch.setenv("GEO_LOCAL_BROWSER_PROFILE_DIR", "/home/dev/.gw-geo-profile")
+    monkeypatch.setenv("GEO_LOCAL_BROWSER_CHANNEL", "msedge")
+    s = Settings()
+    assert s.capture_backend == "local"
+    assert s.local_browser_profile_dir == "/home/dev/.gw-geo-profile"
+    assert s.local_browser_channel == "msedge"
