@@ -38,6 +38,7 @@ const SUGGEST_STAGES: { key: string; label: string }[] = [
   { key: "profiling", label: "Analyzing your brand" },
   { key: "researching", label: "Researching competitors" },
   { key: "refining", label: "Checking category coverage" },
+  { key: "generating_prompts", label: "Generating prompts" },
 ];
 
 /** Poll cadence for the async suggest job (matches the ui-spec's "~1-2 min" grounded lookup). */
@@ -155,6 +156,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         if (status.result) {
           if (status.result.name) setBrandName(status.result.name);
           if (Array.isArray(status.result.competitors)) setCompetitors(status.result.competitors);
+          // Prefill the recommended seed prompts (step 4) — still fully editable/removable, like
+          // competitors — so one grounded lookup seeds both what we measure and who we compare to.
+          if (Array.isArray(status.result.seed_prompts)) setPrompts(status.result.seed_prompts);
         }
         setLookingUp(false);
       } else if (status.status === "error") {

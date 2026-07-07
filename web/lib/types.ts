@@ -13,14 +13,16 @@ export type BrandCreated = { id: string };
 
 /**
  * `POST /brands/suggest` → domain-first onboarding auto-fill (mirrors the backend
- * `BrandSuggestion`): a brand `name` read off the site, the echoed `domain`, and up to ~6
- * suggested `competitors`. Every field is a suggestion the user edits in the wizard before
- * `POST /brands` — nothing is persisted by this call.
+ * `BrandSuggestion`): a brand `name` read off the site, the echoed `domain`, up to ~8 suggested
+ * `competitors`, and up to 12 recommended `seed_prompts` (the AI-search queries to measure the
+ * brand on). Every field is a suggestion the user edits in the wizard before `POST /brands` (and,
+ * for the prompts, `POST /brands/{id}/prompts`) — nothing is persisted by this call.
  */
 export type BrandSuggestion = {
   name: string;
   domain: string;
   competitors: string[];
+  seed_prompts: string[];
 };
 
 /**
