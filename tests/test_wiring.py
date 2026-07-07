@@ -53,6 +53,9 @@ def _hermetic_wiring_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "GEO_CAPTURE_BACKEND",
         "GEO_LOCAL_BROWSER_PROFILE_DIR",
         "GEO_LOCAL_BROWSER_CHANNEL",
+        # Keep the extractor-gateway selection deterministic: a host exporting GEO_LLM_GATEWAY
+        # must not flip which extractor backend a default `Settings()` builds below.
+        "GEO_LLM_GATEWAY",
     ):
         monkeypatch.delenv(var, raising=False)
     yield
@@ -242,6 +245,68 @@ def test_build_runtime_defaults_to_s3_archive(clean_registry):
     settings = Settings(s3_bucket="gw-geo-test")
     rt = build_runtime(settings)
     assert isinstance(rt["archive"], S3RawArchive)
+
+
+# --- M5 extractor gateway: route the answer-extractor through GEO_LLM_GATEWAY -----------------
+
+
+def test_build_runtime_direct_gateway_uses_claude_extractor(clean_registry):
+    """`llm_gateway="direct"` keeps the existing direct-Anthropic `ClaudeExtractor` (unchanged)."""
+    from gw_geo.measurement.parse import ClaudeExtractor
+
+    rt = build_runtime(
+        Settings(llm_gateway="direct", anthropic_api_key="ak-dummy", s3_bucket="gw-geo-test")
+    )
+    assert isinstance(rt["extractor"], ClaudeExtractor)
+
+
+def test_build_runtime_local_claude_gateway_uses_llm_extractor(clean_registry, monkeypatch):
+    """`local_claude` -> `LLMExtractor(build_llm_client(settings))`; `build_llm_client` is patched
+    so no real `claude`/network is touched, and the exact client is threaded straight through."""
+    from gw_geo.measurement.parse import LLMExtractor
+
+    sentinel = object()
+    monkeypatch.setattr("gw_geo.common.wiring.build_llm_client", lambda _s: sentinel)
+
+    rt = build_runtime(Settings(llm_gateway="local_claude", s3_bucket="gw-geo-test"))
+
+    assert isinstance(rt["extractor"], LLMExtractor)
+    assert rt["extractor"]._llm is sentinel  # build_llm_client's result is injected verbatim
+
+
+def test_build_runtime_portkey_gateway_uses_llm_extractor(clean_registry, monkeypatch):
+    """`portkey` -> `LLMExtractor(build_llm_client(settings))` (patched to avoid a real client)."""
+    from gw_geo.measurement.parse import LLMExtractor
+
+    sentinel = object()
+    monkeypatch.setattr("gw_geo.common.wiring.build_llm_client", lambda _s: sentinel)
+
+    rt = build_runtime(
+        Settings(
+            llm_gateway="portkey",
+            portkey_api_key="pk",
+            anthropic_api_key="ak",
+            s3_bucket="gw-geo-test",
+        )
+    )
+
+    assert isinstance(rt["extractor"], LLMExtractor)
+    assert rt["extractor"]._llm is sentinel
+
+
+def test_build_runtime_local_claude_wraps_local_cli_client(clean_registry):
+    """End-to-end (unpatched): `local_claude` wires `LLMExtractor` over the $0 `LocalClaudeCliClient`.
+
+    Constructing `LocalClaudeCliClient` spawns nothing (it opens `claude -p` lazily on first
+    `complete`), so this stays hermetic while proving the headline $0 wiring.
+    """
+    from gw_geo.content.llm_local import LocalClaudeCliClient
+    from gw_geo.measurement.parse import LLMExtractor
+
+    rt = build_runtime(Settings(llm_gateway="local_claude", s3_bucket="gw-geo-test"))
+
+    assert isinstance(rt["extractor"], LLMExtractor)
+    assert isinstance(rt["extractor"]._llm, LocalClaudeCliClient)  # the $0 subscription backend
 
 
 def test_configured_engine_names_mirrors_build_runtime_api_engines():

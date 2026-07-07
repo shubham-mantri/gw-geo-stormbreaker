@@ -21,7 +21,8 @@ import boto3  # type: ignore[import-untyped]
 from gw_geo.capture.base import CaptureClient
 from gw_geo.capture.local import LocalCaptureClient
 from gw_geo.common.config import Settings
-from gw_geo.measurement.parse import ClaudeExtractor, Extractor
+from gw_geo.content.gateway import build_llm_client
+from gw_geo.measurement.parse import ClaudeExtractor, Extractor, LLMExtractor
 from gw_geo.measurement.probe import base
 from gw_geo.measurement.probe.ai_overviews import AIOverviewsAdapter
 from gw_geo.measurement.probe.base import EngineAdapter
@@ -226,6 +227,21 @@ def build_runtime(settings: Settings, *, capture: CaptureClient | None = None) -
         archive = LocalFileArchive(settings.raw_archive_dir)
     else:
         archive = S3RawArchive(bucket=settings.s3_bucket)
-    extractor: Extractor = ClaudeExtractor(api_key=settings.anthropic_api_key)
+
+    # Answer-extractor: routed through the same `GEO_LLM_GATEWAY` flag as the content path.
+    #   * "direct"       -> ClaudeExtractor: the existing direct Anthropic Messages API (opus),
+    #                       unchanged (byte-for-byte).
+    #   * "local_claude" -> LLMExtractor over `build_llm_client`'s LocalClaudeCliClient -- the
+    #                       extraction runs on the user's `claude -p` subscription at $0 API cost.
+    #   * "portkey"      -> LLMExtractor over the Portkey-backed client (direct-Anthropic fallback
+    #                       when unkeyed, mirroring the content gateway's graceful degradation).
+    # Each backend keeps its own default model (local: `settings.claude_cli_model`; portkey:
+    # `DEFAULT_CHAT_MODEL`; direct: ClaudeExtractor's `claude-opus-4-8`). `build_runtime` has no DB
+    # session, so DB-selected measurement models (`resolve_chat_model`) are a future follow-on.
+    extractor: Extractor
+    if settings.llm_gateway == "direct":
+        extractor = ClaudeExtractor(api_key=settings.anthropic_api_key)
+    else:
+        extractor = LLMExtractor(build_llm_client(settings))
 
     return {"extractor": extractor, "archive": archive, "engines": engines}
