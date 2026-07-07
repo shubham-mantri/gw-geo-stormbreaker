@@ -216,7 +216,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                   {lookingUp ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                      Looking up…
+                      Researching…
                     </>
                   ) : (
                     "Look up"
@@ -224,8 +224,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Enter your domain and we&apos;ll pre-fill your brand name and competitors — all
-                editable.
+                {lookingUp
+                  ? "Researching your brand and competitors across the web — this can take a minute or two."
+                  : "Enter your domain and we'll pre-fill your brand name and competitors — all editable."}
               </p>
             </div>
             <div className="space-y-2">

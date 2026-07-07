@@ -7,6 +7,10 @@ const apiProxyTarget = process.env.API_PROXY_TARGET;
 
 const nextConfig = {
   reactStrictMode: true,
+  // The grounded competitor-suggest pipeline (web search + Opus) runs ~1-2 min; Next's dev rewrite
+  // proxy defaults to a 30s timeout and ECONNRESETs long calls. Raise it so /brands/suggest (and any
+  // other slow proxied API call) completes. Milliseconds.
+  experimental: { proxyTimeout: 180_000 },
   // The E2E boots two dev servers from this one directory (proxied + plain — see
   // playwright.config.ts); NEXT_DIST_DIR gives each its own build cache so they never clash. Unset
   // in normal dev/prod (and for `next build`), where the default `.next` is used.
