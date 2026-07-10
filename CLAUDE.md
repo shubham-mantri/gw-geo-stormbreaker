@@ -54,6 +54,18 @@ Pinecone) · S3-compatible storage · Next.js/React dashboard (see `docs/ui-spec
 - Run M0 pipeline (after T14): `python -m gw_geo.cli measure --brand <id> --engines perplexity,openai --n 8`
 
 ## Current status
-✅ **M0 implemented** (T01–T14 merged, TDD). 📐 **M1 designed** (`docs/m1-design.md`).
-🔜 Next: break M1 into `docs/tasks/M1-T*.md` (same wave format as M0), then "start implementation"
-for M1. After M1, M2 builds the dashboard (`docs/ui-spec.md`).
+✅ **M0–M4 implemented** (measurement → attribution → ranking/content → seeding/self-adaptation/RaaS),
+plus **M5 as-built hardening**: the whole product now runs **LOCAL-ONLY** on one machine (no cloud/AWS
+— hard user constraint), internal AI work runs on the user's **Claude Max subscription via `claude -p`
+at $0** (flag `GEO_LLM_GATEWAY=local_claude|portkey|direct`, Opus everywhere), and **measurement uses
+browser capture of consumer surfaces** (ChatGPT UI + Google AI Mode) alongside API probes.
+
+⚠️ **Before implementing anything, read the as-built sections — they override the cloud/Lambda design:**
+`docs/trd.md` **§15** (local runtime, the *measurement-vs-internal* LLM-routing boundary, local Claude,
+browser capture, grounded onboarding, embeddings) and `docs/prd.md` **§15**. The keystone rule:
+**measurement probes hit REAL engines directly (never a gateway); everything else (content, guardrails,
+onboarding suggest, extraction/judge) goes through the gateway (local Claude $0).**
+
+📓 Exact commits, tests, and live-proofs for M5 work: `.superpowers/sdd/progress.md`.
+🔜 Optional next: harden API probes with 429/Retry-After backoff; point the dashboard "Run measurement"
+at the browser engines by default; more browser prompts/engines.

@@ -23,6 +23,10 @@ CLI and a Lambda handler, under a per-tenant sampling budget.
 
 Independent project — no external/shared services, no cross-repo coupling.
 
+> ⚠️ **As-built (M5): the system runs LOCAL-ONLY on one machine, with a specific LLM-routing model
+> (internal calls → gateway/local Claude at $0; measurement probes → real engines directly). §15 is
+> authoritative over the cloud shape (Lambda/SQS/S3) described in this section.**
+
 - **Language/runtime:** Python 3.13 (backend); TypeScript/Next.js (dashboard, §11 / `ui-spec.md`).
 - **Compute:** async workers on AWS Lambda + Step Functions (Serverless Framework v4) — or plain
   containers; the code is deploy-target-agnostic behind the runner interface.
@@ -231,3 +235,65 @@ tracking.
 - OT2. DB migrations in-repo (Alembic) throughout — self-contained, no external migration repo.
 - OT3. Engine list priority: Western engines first; DeepSeek/Doubao gated on APAC client demand (PRD OQ5).
 - OT4. Embeddings store: Pinecone (platform standard) vs pgvector — default Pinecone; revisit on cost.
+
+---
+
+## 15. As-built reality (M5 · local-only) — READ THIS before trusting the cloud shape above
+
+§2–§3 describe the *designed* cloud shape (Lambda/SQS/S3, provider SDKs). The system as actually run
+in M5 is **local-only on one machine** with a specific LLM-routing model. Treat this section as
+authoritative for how it runs today; the serverless code (`serverless.yml`, `handlers/`) still
+compiles but is **not** the run path. Exact commits/tests/live-proofs: `.superpowers/sdd/progress.md`.
+
+### 15.1 Runtime is local-only (hard user constraint — never deploy to cloud/AWS)
+Postgres 18 + pgvector on `localhost` (DB `gw_geo`, Alembic `0001`→`0008`); FastAPI via local
+`uvicorn` :8000; Next.js dashboard `npm run dev` :3000 (rewrites-proxy the API paths to :8000).
+Object store → local FS (`GEO_RAW_ARCHIVE_BACKEND=local`); schedulers/queues → the local CLI
+(`python -m gw_geo.cli …`). All config in `.env` (gitignored). No AWS.
+
+### 15.2 LLM routing: the measurement-vs-internal boundary (KEYSTONE — do not blur it)
+Two classes of LLM call, routed differently **on purpose**:
+1. **Measurement probes = the *subject under test*** → each hits its **real provider endpoint
+   directly, never a gateway** (`measurement/probe/*`: `api.openai.com/v1/responses` with web_search,
+   Anthropic, Perplexity, Gemini, Copilot, DeepSeek; no-API consumer surfaces → real browser capture,
+   §15.4). We must observe the *consumer-facing product with live retrieval* (PRD §133) — a
+   gateway/proxy would measure the wrong thing (normalizes away the citation/tool data we score, and
+   can't reach the no-API surfaces). Probes bill to the tenant's own provider keys.
+2. **Internal "do work for us" calls = provider-agnostic** → the gateway seam
+   `content/gateway.py::build_llm_client` (+ `build_claim_extractor`/`build_voice_scorer`), selected by
+   env **`GEO_LLM_GATEWAY = local_claude (default) | portkey | direct`**. Covers content generation,
+   guardrails, onboarding competitor + seed-prompt suggestion, and the measurement **extraction/judge**
+   step (reading a probe's answer → mention/sentiment/position is internal work → gateway; only the
+   probe itself must be the real engine).
+
+### 15.3 Local Claude ($0) is the default internal path
+`content/llm_local.py::LocalClaudeCliClient` shells to the `claude -p` CLI on the user's **Claude Max
+subscription** (`CLAUDE_CONFIG_DIR=~/.asterisk/Work`, `ANTHROPIC_API_KEY` popped) → **$0 API cost**.
+`--output-format json` + `--json-schema`; `--allowedTools WebSearch` turns on real web search (used by
+onboarding suggest). Model is **DB-selectable per gateway** (`llm_model_config`, migration `0008`;
+Settings → "LLM model" UI; `resolve_chat_model`); **local_claude = Opus everywhere** (DB row +
+`GEO_CLAUDE_CLI_MODEL=opus`). Embeddings can't use it — see §15.6.
+
+### 15.4 Browser measurement (local, $0)
+`capture/local.py::LocalCaptureClient` drives ONE persistent Chrome profile with the user's own logins
+(`GEO_CAPTURE_BACKEND=local`, `channel=chrome`, headed; log in once via `cli login --surface chatgpt`).
+Engines: `chatgpt` (consumer UI), `google_ai_overviews` = **Google AI Mode `udm=50`** (reliable AI
+answer, *not* the query-gated AI-Overview box), `grok` (built; ToS opt-out). $0 and the *truthful*
+consumer signal. **The `openai` API probe needs a funded key** — the user's `GEO_OPENAI_API_KEY` is
+`insufficient_quota` (429s); measure OpenAI via the **`chatgpt` browser probe** instead. For a $0 run:
+`cli measure --engines chatgpt,google_ai_overviews`. (The dashboard button still defaults to keyed API
+engines — prefer the browser engines.)
+
+### 15.5 Grounded onboarding suggestion (competitors + seed prompts)
+`onboarding/suggest.py` is an **async, web-grounded, self-critiquing** pipeline: `POST /brands/suggest`
+→ 202 `{job_id}`; `GET /brands/suggest/status/{job_id}` polls stages (fetching → profiling →
+researching[web search] → refining → generating_prompts → done, each `logger.info`'d). It builds a
+profile, drafts competitors grounded in live web search, critiques (dedupe acquired entities, drop
+scale/segment mismatches, cover every product category), then generates 8–12 high-intent seed prompts.
+`BrandSuggestion = {name, domain, competitors[], seed_prompts[]}`; the wizard prefills both (editable)
+with a live stepper.
+
+### 15.6 Embeddings
+Decoupled from the chat gateway (`build_embedder`): **Portkey** when a Portkey key is set and
+`GEO_LLM_GATEWAY != direct` (local Claude can't embed; direct OpenAI may be quota-blocked). Only
+`direct` forces direct OpenAI.

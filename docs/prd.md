@@ -303,4 +303,30 @@ Enterprise-readiness (SSO, RBAC, SOC 2 path, audit logs) is threaded through M1�
 
 ---
 
+## 15. As-built delta (M5 · local-only) — what actually got built
+
+M0–M4 shipped per the roadmap. Beyond that, M5 hardened the product to run **entirely on a single
+local machine** (hard user constraint: never deploy to cloud/AWS) and made the internal AI work free.
+Technical detail + file/commit pointers live in **`trd.md` §15**; the product-level facts a new
+reader needs:
+
+- **Runs local-only.** Local Postgres+pgvector, local API (`uvicorn`) + dashboard (`next dev`), all
+  config in `.env`. The cloud/Lambda code stays but isn't the run path.
+- **Two kinds of AI call, kept separate on purpose.** (1) **Measurement probes are the subject under
+  test** — they hit each engine's *real* consumer surface/endpoint directly (never a proxy/gateway),
+  because the product's job is to observe what each AI search engine actually tells users. (2) **All
+  other AI work** (content generation, guardrails, onboarding suggestions, answer extraction/judging)
+  is provider-agnostic and routes through a gateway, defaulting to **local Claude on the user's Max
+  subscription = $0** (flag-switchable to Portkey/direct), Opus by default.
+- **Browser measurement of consumer surfaces, $0.** ChatGPT (consumer UI) and **Google AI Mode**
+  (`udm=50`, the reliable AI answer) are captured through the user's own logged-in Chrome — no API
+  keys, and the truest signal of what users see. (The `openai` *API* probe needs a funded key; use the
+  ChatGPT *browser* probe instead.)
+- **Onboarding auto-recommends, grounded.** Entering a domain runs a web-grounded, self-critiquing
+  pipeline that recommends the **brand name, competitors** (deduped, size/segment-matched, covering all
+  product categories), **and 8–12 seed prompts** (the queries to measure) — with live progress. All
+  editable.
+
+---
+
 *End of PRD v1 draft.*
