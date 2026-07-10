@@ -19,3 +19,7 @@ export function loadIndex(): AiIndex | null {
     return null;
   }
 }
+
+export function invalidateCache(): void {
+  cached = null;
+}

@@ -72,12 +72,14 @@ export async function handleRpc(
   }
 }
 
-export function getDiscoveryDocument(hostname: string) {
+export function getDiscoveryDocument(hostname: string, index: AiIndex | null) {
+  const siteName = index?.site?.name || hostname;
+  const siteDomain = index?.site?.domain || hostname;
   return {
     servers: [
       {
-        name: `${hostname} MCP`,
-        description: `Open MCP server for ${hostname}: site search, page content, business info, products, services, reviews, and inquiries.`,
+        name: `${siteName} MCP`,
+        description: `Open MCP server for ${siteDomain}: site search, page content, business info, products, services, reviews, and inquiries.`,
         url: `http://${hostname}/api/mcp`,
         transport: "streamable-http",
         authentication: { type: "none" },

@@ -13,10 +13,7 @@ const INDEX_MISSING =
   "This site's AI index is not available yet. Try the website directly.";
 
 const MAX_MESSAGE_CHARS = 2000;
-const LEAD_API = {
-  prod: "https://api.gushwork.ai/seo-v2/lead",
-  dev: "https://api-dev.gushwork.ai/seo-v2/lead",
-};
+const LEAD_API = "https://api.gushwork.ai/seo-v2/lead";
 
 export const TOOL_DEFINITIONS = [
   {
@@ -35,16 +32,16 @@ export const TOOL_DEFINITIONS = [
   {
     name: "get_page",
     description:
-      "Get the full content of a page as markdown, by its path (e.g. 'blog/o-ring-alternatives' or '' for the homepage). Use search_site or list_pages to discover paths.",
+      "Get the full content of a page as markdown, by its path (e.g. 'blog/o-ring-alternatives'). Omit or pass empty string for the homepage. Use search_site or list_pages to discover paths.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description: "Page path from search_site/list_pages results",
+          description:
+            "Page path from search_site/list_pages results. Omit or leave empty for homepage.",
         },
       },
-      required: ["path"],
     },
   },
   {
@@ -251,9 +248,9 @@ export const TOOL_HANDLERS: Record<
     const page = index?.pages?.find(
       (p) => p.path === String(page_path ?? "").replace(/^\/+|\/+$/g, ""),
     );
-    const apiPath = LEAD_API.dev;
+    const origin = index?.site?.domain || rootDomain;
     const payload = {
-      request_origin: rootDomain,
+      request_origin: origin,
       leads_info: { name, email, ...(phone ? { phone } : {}), message },
       form_details: {
         requestType: "MCP",
@@ -264,7 +261,7 @@ export const TOOL_HANDLERS: Record<
     };
 
     try {
-      const res = await fetch(apiPath, {
+      const res = await fetch(LEAD_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
