@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "generated_at": "2026-07-10T11:55:30.727Z",
+  "site": {
+    "name": "Mixing Systems, Inc.",
+    "domain": "mixing.com",
+    "base_url": "https://mixing.com/feeds",
+    "base_path": "",
+    "description": "Industry-leading jet aeration and diffuser systems for municipal and industrial wastewater treatment. 40+ years of engineering excellence."
+  },
+  "business": {
+    "name": "Mixing Systems, Inc.",
+    "legal_name": "Mixing Systems, Inc.",
+    "address": "7058 Corporate Way, Dayton, Ohio 45459, USA",
+    "phones": [
+      "+1 937-435-7227",
+      "937-435-7227"
+    ],
+    "emails": [
+      "amit@mixing.com"
+    ],
+    "hours": {},
+    "service_areas": [
+      "USA",
+      "Canada",
+      "Europe",
+      "Asia",
+      "Puerto Rico",
+      "Saudi Arabia",
+      "Indonesia",
+      "Norway",
+      "Denmark",
+      "Spain",
+      "Switzerland"
+    ],
+    "certifications": [],
+    "about": "Since its beginnings in 1985, Mixing Systems, Inc. has become a preferred provider of submerged jet aeration and jet mixing systems. With hundreds of installations in operation, the company's success and reputation are the direct result of their commitment to product excellence and customer satisfaction."
+  },
+  "pages": [
+    {
+      "path": "",
+      "type": "page",
+      "url": "https://mixing.com/feeds",
+      "title": "Detroit Wastewater Treatment | Jet Aeration & Diffuser Systems",
+      "description": "Industry-leading jet aeration and diffuser systems for municipal and industrial wastewater treatment. 40+ years of engineering excellence.",
+      "last_modified_at": null,
+      "markdown": "# Detroit Wastewater Treatment\n\nIndustry-leading jet aeration and diffuser systems for municipal and industrial wastewater treatment. Over 40 years of engineering excellence in designing efficient, reliable aeration solutions.\n\n## Our Solutions\n- Jet Aeration Systems\n- Diffuser Systems\n- Industrial Treatment Solutions\n- Municipal Wastewater\n\nContact us for a custom engineering consultation."
+    },
+    {
+      "path": "blog/activated-sludge-process-problems-solutions",
+      "type": "blog",
+      "url": "https://mixing.com/feeds/blog/activated-sludge-process-problems-solutions",
+      "title": "Wastewater Treatment: Solving Activated Sludge Process Problems",
+      "description": "",
+      "last_modified_at": 1781120416201,
+      "markdown": "# Wastewater Treatment: Solving Activated Sludge Process Problems\n\nBlog article about wastewater treatment: solving activated sludge process problems."
+    },
+    {
+      "path": "blog/advanced-sludge-digestion-innovations-2023-2025",
+      "type": "blog",
+      "url": "https://mixing.com/feeds/blog/advanced-sludge-digestion-innovations-2023-2025",
+      "title": "Breakthrough Innovations in Sludge Digestion: Future of Waste Management in 2023-2025",
+      "description": "",
+      "last_modified_at": 1780065785398,
+      "markdown": "# Breakthrough Innovations in Sludge Digestion: Future of Waste Management in 2023-2025\n\nBlog article about breakthrough innovations in sludge digestion: future of waste management in 2023-2025."
+    },
+    {
+      "path": "blog/aeration-basin",
+      "type": "blog",
+      "url": "https://mixing.com/feeds/blog/aeration-basin",
+      "title": "Aeration Basin: Essential Insights for Wastewater Treatment",
+      "description": "",
+      "last_modified_at": 1780065785242,
+      "markdown": "# Aeration Basin: Essential Insights for Wastewater Treatment\n\nBlog article about aeration basin: essential insights for wastewater treatment."
+    },
+    {
+      "path": "category/full-scale-hydraulic-mixers",
+      "type": "category",
+      "url": "https://mixing.com/feeds/category/full-scale-hydraulic-mixers",
+      "title": "Full Scale Hydraulic Mixers Industrial Equipment",
+      "description": "Full-scale hydraulic mixers provide efficient, maintenance-free mixing for large industrial tanks. These jet mixing systems use high-velocity hydraulic jets to entrain fluid, creating powerful circulation and thorough mixing without in-basin moving parts. Ideal for tanks over 10,000 gallons and depths up to 65 feet, they serve wastewater treatment, chemical processing, food manufacturing, oil storage, and mining applications with 20+ year operational lifespans.",
+      "last_modified_at": 1771850033837,
+      "markdown": "# Full Scale Hydraulic Mixers Industrial Equipment\n\nFull-scale hydraulic mixers provide efficient, maintenance-free mixing for large industrial tanks. These jet mixing systems use high-velocity hydraulic jets to entrain fluid, creating powerful circulation and thorough mixing without in-basin moving parts. Ideal for tanks over 10,000 gallons and depths up to 65 feet, they serve wastewater treatment, chemical processing, food manufacturing, oil storage, and mining applications with 20+ year operational lifespans."
+    },
+    {
+      "path": "category/industrial-tank-diffuser-aeration",
+      "type": "category",
+      "url": "https://mixing.com/feeds/category/industrial-tank-diffuser-aeration",
+      "title": "Industrial Tank Diffusers for Aeration Systems",
+      "description": "Industrial tank diffusers for aeration systems deliver energy-efficient oxygen transfer in wastewater treatment facilities, chemical plants, and industrial processes. These jet aeration systems generate fine micron-size bubbles through hydraulic shearing, offering superior oxygen transfer efficiency with energy reductions up to 40% compared to conventional diffused aeration methods. With no in-basin moving parts and optional backflush systems, these diffusers provide virtually maintenance-free operation for deep tanks up to 65 feet.",
+      "last_modified_at": 1771850033837,
+      "markdown": "# Industrial Tank Diffusers for Aeration Systems\n\nIndustrial tank diffusers for aeration systems deliver energy-efficient oxygen transfer in wastewater treatment facilities, chemical plants, and industrial processes. These jet aeration systems generate fine micron-size bubbles through hydraulic shearing, offering superior oxygen transfer efficiency with energy reductions up to 40% compared to conventional diffused aeration methods. With no in-basin moving parts and optional backflush systems, these diffusers provide virtually maintenance-free operation for deep tanks up to 65 feet."
+    },
+    {
+      "path": "category/water-tank-aeration-system",
+      "type": "category",
+      "url": "https://mixing.com/feeds/category/water-tank-aeration-system",
+      "title": "Water Tank Aeration System for Optimal Results",
+      "description": "Water tank aeration systems deliver oxygen efficiently into water storage and treatment tanks through advanced jet aeration technology. These systems use hydraulic shearing to produce micron-sized bubbles that maximize oxygen transfer rates while minimizing energy consumption. Designed for municipal and industrial applications, they provide superior mixing capabilities, flexible system control, and maintenance-free operation for tanks ranging from 10 to 65 feet deep.",
+      "last_modified_at": 1771850033837,
+      "markdown": "# Water Tank Aeration System for Optimal Results\n\nWater tank aeration systems deliver oxygen efficiently into water storage and treatment tanks through advanced jet aeration technology. These systems use hydraulic shearing to produce micron-sized bubbles that maximize oxygen transfer rates while minimizing energy consumption. Designed for municipal and industrial applications, they provide superior mixing capabilities, flexible system control, and maintenance-free operation for tanks ranging from 10 to 65 feet deep."
+    },
+    {
+      "path": "service/food-processing-industry-wastewater-treatment-solutions",
+      "type": "service",
+      "url": "https://mixing.com/feeds/service/food-processing-industry-wastewater-treatment-solutions",
+      "title": "Food Processing Wastewater Treatment Solutions for Food & Beverage Industry",
+      "description": "Transform your food and beverage facility's wastewater challenges into opportunities with Mixing Systems' advanced jet aeration and mixing technology. Our specialized solutions deliver superior treatment efficiency for high-organic-load wastewater from meat processing, dairy operations, brewing facilities, and other food production environments, ensuring regulatory compliance while reducing energy costs compared to conventional systems.",
+      "last_modified_at": 1781705300917,
+      "markdown": "# Food Processing Wastewater Treatment Solutions for Food & Beverage Industry\n\nTransform your food and beverage facility's wastewater challenges into opportunities with Mixing Systems' advanced jet aeration and mixing technology. Our specialized solutions deliver superior treatment efficiency for high-organic-load wastewater from meat processing, dairy operations, brewing facilities, and other food production environments, ensuring regulatory compliance while reducing energy costs compared to conventional systems.\n\n## Why Choose Us\n- **Food Industry Specialization**: Extensive engineering experience with high-BOD wastewater from meat processing, brewing, dairy, corn processing, and specialty food manufacturing. Our team develops process designs and technical solutions tailored to the complex wastewater challenges of the food and beverage industry.\n- **Energy Efficiency**: Our jet aeration systems reduce operating power costs compared to conventional diffused air methods, delivering superior oxygen transfer efficiency while lowering your facility's energy footprint and treatment expenses.\n- **Virtually Maintenance-Free**: All mechanical components positioned outside tanks for easy access. No in-basin moving parts means minimal maintenance requirements. Optional pneumatic backflush eliminates clogging issues, ensuring continuous operation critical for 24/7 food production facilities.\n- **Comprehensive Solutions**: From initial process engineering through detailed design documentation, we develop complete wastewater treatment system designs including equipment specifications and layout drawings. Our computer-aided engineering approach ensures optimized performance for your specific application and site conditions.\n\n## FAQ\n**Q: What makes jet aeration systems better for food processing wastewater than traditional methods?**\nA: Jet aeration systems provide superior oxygen transfer through multiple transfer zones, creating micro-bubbles that remain in contact with wastewater longer than conventional systems. This results in more efficient treatment of high-BOD food processing wastewater while reducing energy consumption. All mechanical components are positioned outside tanks for easy maintenance, eliminating the downtime issues common with in-basin equipment.\n\n**Q: Can your systems handle the varying organic loads typical in food production facilities?**\nA: Yes, our systems are specifically designed for the variable flow and organic loading patterns inherent in food processing operations. Jet aeration provides flexible operation with variable air flow control, allowing real-time adjustments to match your production schedule. Flexible aeration configurations are particularly effective for facilities with batch production processes and fluctuating wastewater characteristics.\n\n**Q: What types of food processing wastewater can your systems treat?**\nA: Our engineered solutions are designed to treat wastewater from meat processing, poultry operations, dairy facilities, breweries, soft drink production, corn processing, baking operations, and other food manufacturing sectors. We provide specialized process engineering and system design to address diverse wastewater challenges across the food and beverage industry.\n\n**Q: How much space is required for a jet aeration wastewater treatment system?**\nA: Jet aeration systems are often more space-efficient than comparable diffused aeration systems because compact jet aerators can be configured for circular or rectangular tanks of various sizes. For large-scale facilities, multiple aerators can be incorporated into the engineered system design. Our team evaluates your available space and develops a customized engineering solution optimized for your specific footprint constraints.\n\n**Q: What is the typical installation timeline for a food processing wastewater system?**\nA: Project timelines vary depending on system size and complexity. As an engineering-focused company, we provide detailed system design, technical documentation, and engineering support to facilitate efficient installation by your appointed contractors. During the engineering phase, we develop comprehensive design packages and implementation guidance aligned with your production schedule to help minimize disruption to ongoing operations.\n\n**Q: Are stainless steel systems available for sanitary food processing environments?**\nA: Yes, we offer stainless steel construction for applications requiring food-grade materials and enhanced corrosion resistance. Stainless steel systems are ideal for facilities with stringent sanitation requirements, including pharmaceutical-grade food ingredient production, dairy processing, and beverage manufacturing where equipment must meet food safety standards.\n\n**Q: How much can we expect to save on energy costs with a jet aeration system?**\nA: Food processing facilities typically achieve energy reductions compared to conventional aeration methods. Actual savings depend on your current system efficiency, wastewater characteristics, and treatment requirements. During system design, we provide energy consumption projections and calculate expected operating cost reductions based on your specific application and local utility rates.\n\n**Q: What ongoing maintenance is required for jet aeration systems?**\nA: Jet aeration systems require minimal maintenance because all mechanical assemblies are located outside tanks for easy access and service. There are no in-basin moving parts to fail or require underwater maintenance. Optional pneumatic backflush systems prevent nozzle clogging. Routine maintenance typically involves periodic pump inspection, air filter replacement, and annual system performance verification—significantly less than conventional diffused aeration systems.\n"
+    },
+    {
+      "path": "service/mixing-tank-water-treatment",
+      "type": "service",
+      "url": "https://mixing.com/feeds/service/mixing-tank-water-treatment",
+      "title": "Expert Mixing Tank Solutions for Water Treatment",
+      "description": "Transform your water treatment operations with advanced mixing tank solutions engineered for maximum efficiency and reliability. Our custom-designed jet aeration and mixing systems deliver superior oxygen transfer, thorough solids suspension, and energy savings up to 40% over conventional methods. With hundreds of installations worldwide serving municipal facilities and industrial plants, we provide proven technology backed by over 40 years of engineering expertise to optimize your water treatment processes.",
+      "last_modified_at": 1781705303138,
+      "markdown": "# Expert Mixing Tank Solutions for Water Treatment\n\nTransform your water treatment operations with advanced mixing tank solutions engineered for maximum efficiency and reliability. Our custom-designed jet aeration and mixing systems deliver superior oxygen transfer, thorough solids suspension, and energy savings up to 40% over conventional methods. With hundreds of installations worldwide serving municipal facilities and industrial plants, we provide proven technology backed by over 40 years of engineering expertise to optimize your water treatment processes.\n\n## Overview\nOur mixing tank solutions combine decades of engineering expertise with innovative jet aeration and mixing technology to deliver measurable performance improvements. Every system is custom-designed using computer-aided engineering to match your specific process requirements, tank geometry, and treatment objectives. With no in-basin moving parts and all mechanical assemblies positioned for easy maintenance, our systems offer virtually maintenance-free operation while achieving superior oxygen transfer efficiency and thorough solids suspension. Whether you're treating municipal wastewater or industrial process water, our solutions reduce energy consumption by up to 40% compared to conventional methods while ensuring consistent, reliable performance.\n\n## Why Choose Us\n- **Energy Efficiency**: Achieve significant energy reduction over conventional aeration methods with superior oxygen transfer performance.\n- **Proven Reliability**: Hundreds of installations operating worldwide with virtually maintenance-free performance and no in-basin moving parts.\n- **Custom Engineering**: Computer-aided design expertise ensures every system is optimized for your specific tank geometry and process requirements.\n- **Global Experience**: Over 40 years serving major industrial and municipal clients across USA, Canada, Europe, Asia, and beyond.\n\n## FAQ\n**Q: What is the mixing process in water treatment?**\nA: The mixing process in water treatment uses hydraulic systems to create circulation, turbulence, and contact between water and treatment agents. Our jet mixing systems force liquid through strategically positioned nozzles, creating high-velocity jets that entrain surrounding fluid. This produces shear forces and circulation patterns that suspend solids, blend chemicals, and ensure uniform treatment throughout the tank. The process is essential for maintaining consistent water quality, preventing settlement, and optimizing chemical reactions in treatment applications.\n\n**Q: What is an equalization tank in water treatment?**\nA: An equalization tank balances fluctuating flow rates and pollutant concentrations in wastewater streams before treatment. These tanks use mixing systems to prevent stratification and maintain uniform water quality. Our jet mixers and aerators create thorough circulation in equalization tanks, preventing solids settlement and ensuring consistent feed to downstream treatment processes. This stabilization improves overall treatment efficiency and protects biological processes from shock loads.\n\n**Q: How much energy can jet aeration systems save compared to conventional methods?**\nA: Our jet aeration systems typically achieve energy savings of up to 40% compared to conventional diffused aeration methods. This efficiency comes from superior oxygen transfer through multiple transfer zones, including high-shear mixing chambers that create micro-bubbles (0.1-1mm diameter) and horizontal plume patterns that maximize gas-liquid contact time. The result is higher dissolved oxygen levels with less air flow and lower blower energy consumption.\n\n**Q: What tank sizes and configurations can your mixing systems handle?**\nA: Our mixing systems accommodate tanks ranging from small process vessels to large basins over 65 feet in diameter. We design solutions for round tanks, rectangular basins, oxidation ditches, and lagoons. For larger installations, multiple jet aerators or mixers can be installed with common headers. Our computer-aided design process ensures optimal nozzle placement and flow patterns regardless of tank geometry, with custom configurations available for unique applications.\n\n**Q: What maintenance is required for jet mixing and aeration systems?**\nA: Our systems are designed for virtually maintenance-free operation with all mechanical assemblies (pumps, blowers, controls) located outside the tank for easy access. The submerged components have no moving parts, eliminating wear issues common in mechanical mixers. Optional pneumatic backflush systems prevent nozzle clogging. Routine maintenance typically involves only periodic inspection of pumps and blowers, making our systems significantly easier and less expensive to maintain than conventional equipment.\n\n**Q: Can your systems handle industrial wastewater with high solids content?**\nA: Yes, our jet mixing systems excel at solids suspension applications and can handle particles up to 2.2 inches (55mm) in diameter. The high-velocity jets create turbulence and circulation sufficient to maintain solids in suspension throughout the tank. For sludge applications, we offer specialized hydraulic sludge mixing systems custom-designed for high-solids wastewater treatment. The key requirement is that the largest particle must be smaller than the primary nozzle diameter to prevent plugging.\n\n**Q: How long does installation typically take for a mixing tank system?**\nA: Installation time varies based on system size and complexity, but our prefabricated designs significantly reduce field installation time compared to custom-fabricated alternatives. Most systems can be installed in days rather than weeks. All components arrive ready for assembly with minimal field welding or fabrication required. External placement of pumps, blowers, and controls simplifies installation and eliminates the need for confined space work during setup.\n\n**Q: Do you provide installation and commissioning support?**\nA: Yes, we provide comprehensive technical support throughout installation and commissioning. Our experienced team assists with system startup, optimization of air and liquid flow rates, and performance verification testing. We also offer operator training to ensure your staff understands system operation and routine maintenance procedures. With hundreds of successful installations worldwide, we have the expertise to ensure your system achieves design performance from day one.\n"
+    },
+    {
+      "path": "service/poultry-wastewater-treatment",
+      "type": "service",
+      "url": "https://mixing.com/feeds/service/poultry-wastewater-treatment",
+      "title": "Expert Poultry Wastewater Treatment for Meat Processing Environmental Solutions",
+      "description": "Tackle the unique challenges of poultry processing wastewater with advanced jet aeration and mixing systems engineered for high organic loads, fats, and proteins. Our proven solutions deliver superior oxygen transfer efficiency, thorough solids suspension, and energy savings up to 40%, ensuring your facility meets strict environmental regulations while reducing operational costs in demanding meat processing environments.",
+      "last_modified_at": 1781705318241,
+      "markdown": "# Expert Poultry Wastewater Treatment for Meat Processing Environmental Solutions\n\nTackle the unique challenges of poultry processing wastewater with advanced jet aeration and mixing systems engineered for high organic loads, fats, and proteins. Our proven solutions deliver superior oxygen transfer efficiency, thorough solids suspension, and energy savings up to 40%, ensuring your facility meets strict environmental regulations while reducing operational costs in demanding meat processing environments.\n\n## Overview\nPoultry processing generates some of the most challenging wastewater streams in the food industry—high in organic content, fats, oils, proteins, and suspended solids. Our jet aeration and mixing systems are specifically designed to handle these demanding conditions. With micro-sized bubbles creating superior oxygen transfer, horizontal plume technology maintaining extended gas-liquid contact, and no in-basin moving parts, our systems deliver reliable treatment performance while slashing energy costs. From equalization to final treatment, we provide solutions that meet stringent discharge regulations.\n\n## Why Choose Us\n- **Food Industry Expertise**: Decades of experience serving major poultry and meat processors with proven systems handling high organic loads, fats, and proteins specific to food processing applications.\n- **Energy Efficiency**: Achieve superior energy efficiency over conventional aeration methods with superior oxygen transfer efficiency, significantly reducing operating costs for continuous food processing operations.\n- **Virtually Maintenance-Free**: All mechanical components positioned outside tanks for easy access. No in-basin moving parts means minimal maintenance and uninterrupted operation—critical for continuous processing facilities.\n- **Custom Engineered Systems**: Computer-aided design creates solutions tailored to your facility's specific flow rates, load characteristics, and space constraints, ensuring optimal performance and regulatory compliance.\n\n## FAQ\n**Q: What makes poultry processing wastewater so challenging to treat?**\nA: Poultry wastewater contains extremely high levels of organic matter (BOD/COD), fats, oils, proteins, blood, and suspended solids. These characteristics demand robust aeration systems with superior oxygen transfer efficiency and thorough mixing capabilities to prevent grease accumulation and ensure complete biological treatment before discharge.\n\n**Q: How do jet aeration systems handle high fat content from poultry processing?**\nA: Our jet aerators create micro-sized bubbles (0.1-1mm) through high shear mixing chambers, providing superior gas-liquid contact and preventing fat accumulation. The horizontal plume design maintains extended contact time, while thorough mixing prevents stratification and ensures fats are properly emulsified and treated biologically.\n\n**Q: What energy savings can we expect compared to our current aeration system?**\nA: Our jet aeration systems typically achieve energy reductions of up to 40% compared to conventional diffused air or mechanical aeration methods. This is due to superior oxygen transfer efficiency across multiple transfer zones, reduced air flow requirements, and optimized hydraulic design that maximizes treatment effectiveness per unit of energy consumed.\n\n**Q: Can your systems handle variable loads from batch processing operations?**\nA: Absolutely. Our flexible aeration configurations are ideal for facilities with variable flow and load conditions. The systems offer flexible operation with variable air flow control, allowing you to adjust treatment intensity based on real-time processing schedules while maintaining consistent discharge quality.\n\n**Q: How long does installation typically take, and will it disrupt our operations?**\nA: Installation timelines vary based on system size and complexity, but our prefabricated modular design significantly reduces on-site installation time. All mechanical assemblies are positioned outside tanks for easy access, and we work closely with your team to schedule installation during planned downtime or in phases to minimize operational disruption.\n\n**Q: What maintenance is required for jet aeration systems?**\nA: Our systems are designed for virtually maintenance-free operation. With no in-basin moving parts and all mechanical assemblies (pumps, blowers) positioned outside tanks for easy access, routine maintenance is minimal. Optional pneumatic backflush systems eliminate nozzle clogging concerns, and the robust stainless steel construction ensures long-term durability.\n\n**Q: Do you provide systems that meet USDA and EPA discharge requirements?**\nA: Yes. Our treatment systems are engineered to help facilities achieve compliance with federal, state, and local discharge regulations including EPA guidelines for meat and poultry processing facilities. We design systems based on your specific permit limits and can provide performance data from similar installations.\n\n**Q: What is the expected lifespan of your wastewater treatment equipment?**\nA: Our systems are built for durability with quality materials including stainless steel. With proper operation and routine maintenance, the equipment typically operates reliably for 20+ years. The absence of in-basin moving parts significantly extends service life compared to mechanical aerators and eliminates costly underwater repairs.\n"
+    }
+  ],
+  "products": [
+    {
+      "name": "Submersible Jet Aerators",
+      "url": "lagoon aeration system",
+      "attributes": {
+        "System Type": [
+          "Aeration System"
+        ],
+        "Application Type": [
+          "Wastewater Treatment"
+        ],
+        "Tank Depth Range (feet)": {
+          "max": 65,
+          "min": 10
+        },
+        "Materials of Construction": [
+          "Fiberglass Reinforced Plastic (FRP)",
+          "316 Stainless Steel"
+        ]
+      }
+    },
+    {
+      "name": "Tank Mixing Systems",
+      "url": "Tank mixing",
+      "attributes": {
+        "System Type": [
+          "Mixing System"
+        ],
+        "Application Type": [
+          "Wastewater Treatment",
+          "Chemical Processing",
+          "Food & Beverage",
+          "Oil & Petrochemical",
+          "Mining"
+        ],
+        "Tank Depth Range (feet)": {
+          "max": 65,
+          "min": 20
+        },
+        "Materials of Construction": [
+          "Fiberglass Reinforced Plastic (FRP)",
+          "316 Stainless Steel",
+          "Duplex Stainless Steel",
+          "440 Stainless Steel"
+        ]
+      }
+    },
+    {
+      "name": "Water Tank Aerator",
+      "url": "water tank mixing systems",
+      "attributes": {
+        "System Type": [
+          "Aeration System",
+          "Mixing System"
+        ],
+        "Application Type": [
+          "Wastewater Treatment",
+          "Chemical Processing",
+          "Food & Beverage",
+          "Oil & Petrochemical",
+          "Mining"
+        ],
+        "Tank Depth Range (feet)": {
+          "max": 65,
+          "min": 20
+        },
+        "Materials of Construction": [
+          "Fiberglass Reinforced Plastic (FRP)",
+          "316 Stainless Steel",
+          "Duplex Stainless Steel",
+          "440 Stainless Steel"
+        ]
+      }
+    }
+  ],
+  "services": [
+    {
+      "name": "Jet Aeration",
+      "description": "Submerged, fine bubble, diffused jet aeration systems that utilize the ejector method of contacting gases and liquids. The system features double nozzle arrangements with a primary inner nozzle, intermediate high shear mixing chamber, and outer secondary nozzle. Oxygen transfer occurs through multiple zones: high contact zone within nozzles creating micro-size bubbles (0.1 to 1 mm diameter), high pressure zone at tank bottom with horizontal plume travel, buoyancy bubble rise (1 to 3 mm diameter), and surface agitation. Applications include gas/liquid contacting, blending, and solids suspension. The system is more effective than other aeration methods because it utilizes multiple oxygen transfer zones. All aeration and mixing occurs below the surface, eliminating mist or spray problems and icing issues. Available in several configurations including Directional Mix Jet Aerators (DMJA), Bidirectional Mix Jet Aerators (BMJA), and Eddy Mix Jet Aerators (EMJA). Serves industries including pulp and paper, textile, chemical, petrochemical and refinery, pharmaceutical, food and beverage, corn processing, and municipal. Installations worldwide including locations in Canada, USA, Europe, and Indonesia."
+    },
+    {
+      "name": "Hydraulic Sludge Mixing",
+      "description": "Hydraulic mixing systems specifically designed for sludge applications. Custom-designed systems for wastewater treatment and sludge management applications."
+    },
+    {
+      "name": "Sequencing Batch Reactors (SBR)",
+      "description": "Complete SBR systems including tanks, pumps, blowers, aerators, decanters, skimmers and piping. Systems available in FRP (Fiber Reinforced Plastic) tanks. Example installation includes two 8 ft (2.3 M) diameter, 14 ft (4.3 M) high FRP tanks. Suitable for refinery and chemical applications. Complete turnkey systems supplied by Mixing Systems, Inc.."
+    }
+  ],
+  "reviews": [
+    {
+      "reviewer": "Food & Beverage client with Covered Anaerobic Digester lagoon",
+      "content": "We can't really tell how well it is mixing but it must be doing its job. Bugs are growing and we're making gas!",
+      "source": "LLM"
+    },
+    {
+      "reviewer": "Industrial processing client",
+      "content": "There is no doubt that the system is doing exactly what it was intended to do, thank you for working with us to make this project successful.",
+      "source": "LLM"
+    },
+    {
+      "reviewer": "Food & Beverage client",
+      "content": "I am very pleased with the results I see. For the most part the EQ tank is self-neutralizing. That is the main goal of the EQ tank's mixing system. There are few instances when the tank gets to >70% full and hasn't neutralized and chemicals must be added.",
+      "source": "LLM"
+    },
+    {
+      "reviewer": "Municipal Industry General Contractor",
+      "content": "Your system was really simple and straightforward to install. Thanks so much!",
+      "source": "LLM"
+    },
+    {
+      "reviewer": "Petrochemical industry client",
+      "content": "The thermal imaging is telling us that your mixing system is working as designed and our solids accumulating should no longer be a concern. This is great news, thank you for working with us Amit and I hope we can do more work with you in the future.",
+      "source": "LLM"
+    },
+    {
+      "reviewer": "Chemical industry client",
+      "content": "Just to let you know, the tank mixer we installed is still operating and working extremely well… we haven't had to enter the tank to clean it since it was installed and is scheduled for its routine inspection next year!",
+      "source": "LLM"
+    },
+    {
+      "reviewer": "Municipal client",
+      "content": "I just spoke to our Manager who has been intimate with the project operation, he stated confidently that all is running really well with the Tunnel Dewatering Pump Station (TDPS) mixing equipment / flushing nozzles.",
+      "source": "LLM"
+    },
+    {
+      "reviewer": "Industrial manufacturing client",
+      "content": "Your jet mixers are working better than anticipated! We have not had to enter tank 7 since your jet mixer was installed… 5 years ago, we went from annual cleanings to potentially having it on 5-year intervals or more! The eddy mixers we installed on tanks 11 & 12 are also working good! These have been a great success.",
+      "source": "LLM"
+    }
+  ]
+}

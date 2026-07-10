@@ -1,0 +1,684 @@
+{
+  "id": "d8188edc-c83d-4cb9-adea-7a263be3c326",
+  "url": "https://mixing.com/",
+  "name": "Mixing Systems Inc",
+  "metadata": {
+    "pylon_account_id": "598e2c16-415c-46ef-9abd-69ec2b118200",
+    "is_processing_enabled": true,
+    "show_gushwork_branding": true,
+    "agentic_editor_disabled": false,
+    "send_non_feeds_notifications": true
+  },
+  "logo_urls": {
+    "favicon": "https://file-host.link/website/mixing-rl03u7/assets/logo/1770581389505205_0b78bcf7acbc4f6db50e7777cd892241.jpg",
+    "gbp_url": "https://file-host.link/website/mixing-rl03u7/assets/logo/1770581228177937_980b17f3ab434a2caae3a69dd4727679.webp",
+    "footer_logo": "https://file-host.link/website/mixing-rl03u7/assets/logo/logo.webp",
+    "header_logo": "https://file-host.link/website/mixing-rl03u7/assets/logo/logo.webp",
+    "logo_for_llm": null
+  },
+  "company_info": {
+    "name": {
+      "dba_name": null,
+      "legal_name": "Mixing Systems, Inc.",
+      "company_name": "Mixing Systems, Inc."
+    },
+    "founded": {
+      "founded_date_year": 1985,
+      "years_in_business": "Over 40 years"
+    },
+    "locations": {
+      "branch_locations": [],
+      "headquarters_address": "7058 Corporate Way, Dayton, Ohio 45459, USA"
+    },
+    "credentials": {
+      "memberships": [],
+      "accreditations": [],
+      "certifications": [],
+      "business_licenses": []
+    },
+    "company_size": {
+      "employee_count": null,
+      "annual_turnover": null
+    },
+    "service_team": {
+      "team_members": [
+        {
+          "bio": null,
+          "name": "Prakash R. Bathija",
+          "title": "Contact Person",
+          "images": [
+            {
+              "context": "ignoreGeneration#ignoreRevamp#1:1",
+              "alt_text": "Portrait of Prakash R. Bathija",
+              "image_id": "23189ecf-a36f-4869-81f5-89384f13ee0c",
+              "description": "Professional headshot of Prakash R. Bathija"
+            }
+          ],
+          "headshot_image": null
+        }
+      ],
+      "employee_count": 0,
+      "years_of_experience": null
+    },
+    "company_story": {
+      "milestones": [
+        "1985: Company founded",
+        "Supplied jet aerators and jet mixers to some of the largest wastewater installations around the world",
+        "Hundreds of installations completed in operation"
+      ],
+      "founding_story": "Mixing Systems, Inc. was founded in 1985 with engineers who had over twenty years experience in design, application, marketing and manufacturing of jet aeration and jet mixing systems. The company included a former Project Manager of the company which pioneered jet aeration systems.",
+      "company_history": "Since its beginnings in 1985, Mixing Systems, Inc. has become a preferred provider of submerged jet aeration and jet mixing systems. With hundreds of installations in operation, the company's success and reputation are the direct result of their commitment to product excellence and customer satisfaction.",
+      "growth_narrative": "Because of dedication to quality, Mixing Systems, Inc. has supplied jet aerators and jet mixers to some of the largest wastewater installations around the world. The company has grown from its beginnings to become a preferred provider with hundreds of installations in operation across multiple industries and countries."
+    },
+    "phone_numbers": [
+      "+1 937-435-7227",
+      "937-435-7227"
+    ],
+    "service_areas": [
+      "USA",
+      "Canada",
+      "Europe",
+      "Asia",
+      "Puerto Rico",
+      "Saudi Arabia",
+      "Indonesia",
+      "Norway",
+      "Denmark",
+      "Spain",
+      "Switzerland"
+    ],
+    "email_addresses": [
+      "amit@mixing.com"
+    ],
+    "major_customers": [
+      {
+        "customer_name": "Allied Processors, Inc",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "American Cyanamid",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "BASF Corporation",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Bayer",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "BF Goodrich",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Celanese",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Chemours / E.I. Dupont",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Ciba Geigy Corporation",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Dow Chemical",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Eastman Chemical",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Exxon",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Procter and Gamble",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Union Carbide",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "ADM",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Anheuser Busch",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Archer, Daniels, Midland (ADM)",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Cargill, Inc.",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Coca Cola Products, Inc",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Coors Brewing Co.",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Kraft",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "M&M Mars",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Nabisco Foods",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Tyson Foods",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Aramco",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "BP Oil",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Shell Refinery",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Texaco",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Amgen",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Eli Lilly",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Merck",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Novartis",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Pfizer",
+        "customer_logo_url": null
+      },
+      {
+        "customer_name": "Warner-Lambert",
+        "customer_logo_url": null
+      }
+    ],
+    "ratings_reviews": {
+      "GBP": {
+        "rating": null,
+        "review_count": null
+      }
+    },
+    "business_category": [
+      "Manufacturer"
+    ],
+    "target_geographies": [
+      "us"
+    ],
+    "value_propositions": {
+      "key_benefits": [
+        "Energy reductions of up to 40% over other aeration methods",
+        "Superior oxygen transfer efficiency",
+        "Cost effective operation",
+        "Reduced operating power costs",
+        "Thorough mixing and solids suspension",
+        "No mist or spray problems",
+        "No icing problems due to elimination of thermal stratification",
+        "Flexible operation with variable air flow control",
+        "Deep tank operation capability",
+        "Low maintenance requirements"
+      ],
+      "market_positioning": "A preferred provider of submerged jet aeration and jet mixing systems offering superior oxygen transfer efficiency and energy savings of up to 40% over conventional methods, serving major industrial clients worldwide.",
+      "competitive_advantages": [
+        "Over twenty years experience in design, application, marketing and manufacturing",
+        "Highly trained staff with extensive experience",
+        "Computer aided design for custom systems",
+        "Hundreds of installations in operation worldwide",
+        "Preferred provider of submerged jet aeration and jet mixing systems",
+        "Easier and less expensive to install than comparable diffused aeration systems",
+        "All mechanical assemblies placed outside tanks for easy service",
+        "Prefabricated sections for easy assembly"
+      ],
+      "unique_selling_propositions": [
+        "Submerged jet aeration and jet mixing systems with no in-basin moving parts",
+        "Multiple oxygen transfer zones for superior mass transfer rates",
+        "Double nozzle arrangement with high shear mixing chamber",
+        "Micro-size bubbles from 0.1 to 1 mm in diameter",
+        "Horizontal plume injection maintains gas/liquid transfer interface longer than conventional diffused air systems",
+        "Optional pneumatic backflush system to eliminate clogging",
+        "Virtually maintenance free operation"
+      ]
+    },
+    "awards_recognitions": [],
+    "social_media_profiles": {
+      "other": [],
+      "yelp_url": null,
+      "twitter_url": null,
+      "youtube_url": null,
+      "facebook_url": null,
+      "linkedin_url": null,
+      "whatsapp_url": null,
+      "instagram_url": null
+    },
+    "target_customer_segments": [
+      "Pulp and Paper",
+      "Textile",
+      "Chemical",
+      "Petrochemical and Refinery",
+      "Pharmaceutical",
+      "Food and Beverage",
+      "Corn Processing",
+      "Municipal",
+      "Wastewater Treatment"
+    ],
+    "mission_statement_company_values": {
+      "vision": null,
+      "taglines": [
+        "Continually Striving for Excellence",
+        "Specializing in Pulp and Paper Mills",
+        "Manufacturer of Jet Aeration and Jet Mixing Systems"
+      ],
+      "core_values": [
+        "Product excellence",
+        "Customer satisfaction",
+        "Quality manufacturing",
+        "Durability",
+        "Precision"
+      ],
+      "mission_statement": "Mixing Systems' goal is to design and manufacture aeration and mixing systems that offer durability, quality and precision at prices that are extremely competitive to comparable systems."
+    }
+  },
+  "page_configs": {
+    "forms": [
+      {
+        "id": "default",
+        "fields": [
+          {
+            "key": "name",
+            "type": "text",
+            "required": true,
+            "placeholder": "Full Name",
+            "autocomplete": "name",
+            "required_message": "Name is required"
+          },
+          {
+            "key": "company_name",
+            "type": "text",
+            "required": true,
+            "placeholder": "Company Name",
+            "autocomplete": "organization",
+            "required_message": "Company name is required"
+          },
+          {
+            "key": "email",
+            "type": "email",
+            "required": true,
+            "placeholder": "Email Address",
+            "autocomplete": "email",
+            "invalid_message": "Valid email is required"
+          },
+          {
+            "key": "phone",
+            "type": "phone",
+            "phone": {
+              "default_country": "us"
+            },
+            "required": true,
+            "placeholder": "Phone Number",
+            "invalid_message": "Valid phone number is required (5-15 digits, formatting allowed)"
+          },
+          {
+            "key": "message",
+            "rows": 4,
+            "type": "textarea",
+            "label": "Comments",
+            "required": false,
+            "collapsible": true,
+            "placeholder": "Add comments"
+          }
+        ]
+      }
+    ],
+    "nav_items": [
+      {
+        "href": "/service",
+        "type": "dropdown",
+        "items": [],
+        "label": "Our Services",
+        "render": true,
+        "toc_label": "Services",
+        "page_type_label": "Service"
+      },
+      {
+        "href": "/category",
+        "type": "dropdown",
+        "items": [],
+        "label": "Our Products",
+        "render": true,
+        "toc_label": "Products",
+        "page_type_label": "Category"
+      },
+      {
+        "href": "/blog",
+        "type": "dropdown",
+        "items": [],
+        "label": "Blogs",
+        "render": true,
+        "toc_label": "Blogs",
+        "page_type_label": "Blog"
+      }
+    ],
+    "logo_config": {
+      "footer": {
+        "logo": {
+          "height": {
+            "base": 38
+          },
+          "object_fit": "contain"
+        }
+      },
+      "header": {
+        "logo": {
+          "height": {
+            "base": 38
+          },
+          "max_width": {
+            "base": 140
+          },
+          "object_fit": "contain"
+        },
+        "container": {
+          "height": {
+            "base": 78
+          }
+        }
+      }
+    },
+    "footer_config": {
+      "show_logo": true,
+      "show_tagline": true,
+      "show_company_name": true
+    },
+    "header_config": {
+      "contact_form": {
+        "form_title": "Contact Us",
+        "submit_label": "Submit",
+        "trigger_label": "Contact Us"
+      }
+    },
+    "feeds_template": "classic",
+    "form_placements": {
+      "blog": {
+        "contact_fold": "default",
+        "scroll_popup": "default"
+      },
+      "global": {
+        "header_cta": "default"
+      },
+      "service": {
+        "faq_cta": "default",
+        "contact_fold": "default",
+        "hero_primary": "default",
+        "service_list": "default",
+        "locations_cta": "default",
+        "hero_secondary": "default",
+        "service_spec_steps": "default",
+        "service_spec_description": "default"
+      },
+      "category": {
+        "faq_cta": "default",
+        "catalogue": "default",
+        "contact_fold": "default",
+        "hero_primary": "default",
+        "product_card": "default",
+        "hero_secondary": "default",
+        "industries_cta": "default",
+        "filters_aside_cta": "default",
+        "related_categories": "default"
+      }
+    },
+    "renderer_config": {
+      "blog": {
+        "components": [
+          {
+            "key": "BlogHeroFold",
+            "props": {}
+          },
+          {
+            "key": "BlogContentFold",
+            "props": {}
+          },
+          {
+            "key": "RelatedBlogsFold",
+            "props": {}
+          },
+          {
+            "key": "ContactFold",
+            "props": {}
+          }
+        ]
+      },
+      "feeds": {
+        "components": [
+          {
+            "key": "TableOfContent",
+            "props": {}
+          }
+        ]
+      },
+      "service": {
+        "components": [
+          {
+            "key": "ServiceHeroFold",
+            "props": {}
+          },
+          {
+            "key": "ServiceListFold",
+            "props": {}
+          },
+          {
+            "key": "ServiceSpecFold",
+            "props": {}
+          },
+          {
+            "key": "ServiceSuccessStories",
+            "props": {}
+          },
+          {
+            "key": "ServiceWhyUsFold",
+            "props": {}
+          },
+          {
+            "key": "ServiceTeamFold",
+            "props": {}
+          },
+          {
+            "key": "ServiceFAQFold",
+            "props": {}
+          },
+          {
+            "key": "ServiceLocationsFold",
+            "props": {}
+          },
+          {
+            "key": "ServiceAwardsFold",
+            "props": {}
+          },
+          {
+            "key": "ContactFold",
+            "props": {}
+          }
+        ]
+      },
+      "category": {
+        "components": [
+          {
+            "key": "CategoryHeroFold",
+            "props": {}
+          },
+          {
+            "key": "CategoryProductGridFold",
+            "props": {}
+          },
+          {
+            "key": "CategoryFAQFold",
+            "props": {}
+          },
+          {
+            "key": "IndustriesFold",
+            "props": {}
+          },
+          {
+            "key": "RelatedCategoriesFold",
+            "props": {}
+          },
+          {
+            "key": "WhyUsFold",
+            "props": {}
+          },
+          {
+            "key": "ContactFold",
+            "props": {}
+          }
+        ]
+      }
+    },
+    "show_gushwork_branding": true
+  },
+  "canonical_url": "https://mixing.com/feeds",
+  "design_tokens": {
+    "fonts": {
+      "body_font_url": "https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap",
+      "feeds_font_url": "https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700&display=swap",
+      "heading_font_url": "https://fonts.googleapis.com/css2?family=Urbanist:wght@300..700&display=swap"
+    },
+    "css_variables": {
+      "--shadow-lg": "0 10px 40px rgba(10, 10, 10, 0.12)",
+      "--shadow-md": "0 4px 6px -1px rgba(10, 10, 10, 0.1), 0 2px 4px -1px rgba(10, 10, 10, 0.06)",
+      "--shadow-s2": "0 2px 4px 0 rgba(27, 28, 29, 0.04)",
+      "--shadow-s3": "0 16px 32px -12px rgba(88, 92, 95, 0.1)",
+      "--shadow-s4": "0 4px 12px 0 rgba(0, 102, 204, 0.2)",
+      "--shadow-sm": "0px 1px 2px 0px rgba(10, 13, 20, 0.03)",
+      "--shadow-xl": "0 20px 40px rgba(10, 10, 10, 0.15)",
+      "--shadow-xs": "0px 1px 2px 0px rgba(0, 0, 0, 0.05)",
+      "--color-feeds-bg": "#ffffff",
+      "--color-brand-info": "#2563eb",
+      "--color-brand-text": "#1A1A1A",
+      "--color-feeds-text": "#6a7077",
+      "--font-family-body": "Inter, ui-sans-serif, system-ui, sans-serif",
+      "--color-brand-black": "#0d0d0d",
+      "--color-brand-error": "#c1272d",
+      "--color-brand-white": "#ffffff",
+      "--color-feeds-muted": "#f1f2f3",
+      "--font-family-feeds": "'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+      "--color-feeds-accent": "#16a34a",
+      "--color-feeds-border": "#e1e3e8",
+      "--color-feeds-strong": "#0d0d0d",
+      "--animate-scroll-left": "scroll-left 60s linear infinite",
+      "--color-brand-gray-25": "#f7f8f9",
+      "--color-brand-gray-50": "#f1f2f3",
+      "--color-brand-primary": "#0066FF",
+      "--color-brand-success": "#16a34a",
+      "--color-brand-warning": "#ffc107",
+      "--font-family-heading": "Urbanist, ui-sans-serif, system-ui, sans-serif",
+      "--hero-gradient-start": "rgba(255, 76, 0, 0.5)",
+      "--color-brand-gray-100": "#e1e3e8",
+      "--color-brand-gray-200": "#cfd1d4",
+      "--color-brand-gray-300": "#d1d1d1",
+      "--color-brand-gray-400": "#959ba4",
+      "--color-brand-gray-500": "#878b94",
+      "--color-brand-gray-600": "#6a7077",
+      "--color-brand-gray-700": "#535a61",
+      "--color-brand-gray-800": "#4d545c",
+      "--color-brand-gray-900": "#262a2e",
+      "--color-gw-primary-100": "#cce2ff",
+      "--color-gw-primary-200": "#99c6ff",
+      "--color-gw-primary-300": "#66a9ff",
+      "--color-gw-primary-400": "#338dff",
+      "--color-gw-primary-500": "#0070ff",
+      "--color-gw-primary-600": "#005cd1",
+      "--color-gw-primary-700": "#0048a3",
+      "--color-brand-info-dark": "#1e40af",
+      "--color-brand-info-tint": "#dbeafe",
+      "--color-brand-secondary": "#FF3366",
+      "--color-brand-error-dark": "#9d174d",
+      "--color-brand-error-tint": "#fce7f3",
+      "--color-brand-info-light": "#3b82f6",
+      "--color-brand-neutral-50": "#fafafa",
+      "--color-brand-text-muted": "#9E9E9E",
+      "--color-brand-error-light": "#ec8889",
+      "--color-brand-neutral-100": "#f5f5f5",
+      "--color-brand-neutral-200": "#e5e5e5",
+      "--color-brand-neutral-300": "#d4d4d4",
+      "--color-brand-neutral-400": "#a3a3a3",
+      "--color-brand-neutral-500": "#737373",
+      "--color-brand-neutral-600": "#525252",
+      "--color-brand-neutral-700": "#404040",
+      "--color-brand-neutral-900": "#171717",
+      "--color-brand-primary-dark": "#0047B3",
+      "--color-brand-success-dark": "#166534",
+      "--color-brand-success-tint": "#dcfce7",
+      "--color-brand-text-inverse": "#ffffff",
+      "--color-brand-text-primary": "#1A1A1A",
+      "--color-brand-primary-hover": "#0052CC",
+      "--color-brand-primary-light": "rgba(0, 102, 255, 0.05)",
+      "--color-brand-success-light": "#22c55e",
+      "--color-brand-text-tertiary": "#6B6B6B",
+      "--color-brand-primary-medium": "rgba(0, 102, 255, 0.1)",
+      "--color-brand-secondary-dark": "#CC2952",
+      "--color-brand-text-secondary": "#4A4A4A",
+      "--color-brand-secondary-hover": "#E62E5C",
+      "--color-brand-secondary-light": "rgba(255, 51, 102, 0.05)",
+      "--color-brand-secondary-medium": "rgba(255, 51, 102, 0.1)",
+      "--color-brand-primary-foreground": "#ffffff",
+      "--color-brand-secondary-foreground": "#ffffff"
+    }
+  },
+  "additional_info": {
+    "business_profile": {
+      "inventory_nature": "100% Engineered Whole Unit Systems - Custom-designed jet aerators, jet mixers, and complete turnkey wastewater treatment systems with supporting pumps and blowers. No off-the-shelf replacement parts or consumables catalog.",
+      "business_identity": "B2B manufacturer of submerged jet aeration and jet mixing systems for industrial wastewater treatment, serving chemical, pharmaceutical, food processing, pulp & paper, and municipal sectors with engineered-to-order equipment rather than catalog parts.",
+      "primary_verticals": [
+        "Jet Aeration Systems",
+        "Jet Mixing Systems",
+        "Hydraulic Sludge Mixers",
+        "Sequencing Batch Reactors (SBR)",
+        "Supporting Equipment (Pumps, Blowers, Backflush Systems)"
+      ],
+      "explicit_out_of_scope": [
+        "Replacement parts distribution",
+        "Consumables (chemicals, filters, membranes)",
+        "Surface aerators or mechanical mixers",
+        "Residential wastewater equipment",
+        "Rental or leasing services",
+        "Used or refurbished equipment",
+        "Installation-only services without equipment supply",
+        "Non-wastewater mixing applications (food processing mixers, pharmaceutical reactors as standalone products)",
+        "Diffused air systems (fine bubble diffusers, membrane diffusers)",
+        "Biological treatment media or additives"
+      ]
+    }
+  },
+  "staging_subdomain": "mixing-rl03u7"
+}

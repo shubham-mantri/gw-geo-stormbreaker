@@ -1,0 +1,264 @@
+{
+  "id": "284959ac-ffec-4c98-9c42-542039e4360e",
+  "slug": "poultry-wastewater-treatment",
+  "volume": 40,
+  "page_info": {
+    "meta": {
+      "page_title": "Poultry Wastewater Treatment for Meat Processing Environmental Solutions",
+      "schema_markup": "{\"@context\":\"https://schema.org\",\"@type\":\"Service\",\"serviceType\":\"Poultry Wastewater Treatment for Meat Processing\",\"provider\":{\"@type\":\"Organization\",\"name\":\"Mixing Systems, Inc.\",\"description\":\"Manufacturer of jet aeration and jet mixing systems for wastewater treatment with over 40 years of experience serving the food processing, chemical, pharmaceutical, and municipal industries worldwide.\",\"foundingDate\":\"1985\",\"address\":{\"@type\":\"PostalAddress\",\"streetAddress\":\"7058 Corporate Way\",\"addressLocality\":\"Dayton\",\"addressRegion\":\"OH\",\"postalCode\":\"45459\",\"addressCountry\":\"US\"},\"telephone\":\"+1-937-435-7227\",\"email\":\"mixing@mixing.com\"},\"areaServed\":[{\"@type\":\"Country\",\"name\":\"United States\"},{\"@type\":\"Country\",\"name\":\"Canada\"},{\"@type\":\"Country\",\"name\":\"Europe\"},{\"@type\":\"Country\",\"name\":\"Asia\"}],\"description\":\"Advanced jet aeration and hydraulic mixing systems engineered specifically for poultry and meat processing wastewater treatment, featuring superior oxygen transfer efficiency, energy savings up to 40%, and custom-designed solutions for high organic loads, fats, oils, and proteins.\",\"offers\":{\"@type\":\"Offer\",\"availability\":\"https://schema.org/InStock\"}}",
+      "page_description": "Advanced jet aeration & mixing systems for poultry processing wastewater. Superior treatment for high organic loads with superior energy efficiency. Proven solutions from Mixing Systems, Inc."
+    },
+    "name": "Poultry Wastewater Treatment for Meat Processing Environmental Solutions",
+    "title": "Expert Poultry Wastewater Treatment for <span class='text-brand-primary'>Meat Processing</span> Environmental Solutions",
+    "images": [
+      {
+        "context": "#1:1",
+        "alt_text": "Industrial poultry wastewater treatment system with jet aerators in meat processing facility",
+        "image_id": "68651e68-b7ee-476d-9821-caa834fb58e1",
+        "description": "Large industrial wastewater treatment tanks with submerged jet aeration equipment processing poultry facility effluent"
+      }
+    ],
+    "fold_data": {
+      "faq": {
+        "cta": {
+          "heading": "Need Help Optimizing Your Wastewater Treatment?",
+          "cta_text": "Speak with an Engineer",
+          "form_title": "Service Inquiry",
+          "description": "Our engineers are ready to discuss your facility's specific challenges and design a custom solution.",
+          "submit_label": "Submit"
+        },
+        "content": [
+          {
+            "answer": "Poultry wastewater contains extremely high levels of organic matter (BOD/COD), fats, oils, proteins, blood, and suspended solids. These characteristics demand robust aeration systems with superior oxygen transfer efficiency and thorough mixing capabilities to prevent grease accumulation and ensure complete biological treatment before discharge.",
+            "question": "What makes poultry processing wastewater so challenging to treat?"
+          },
+          {
+            "answer": "Our jet aerators create micro-sized bubbles (0.1-1mm) through high shear mixing chambers, providing superior gas-liquid contact and preventing fat accumulation. The horizontal plume design maintains extended contact time, while thorough mixing prevents stratification and ensures fats are properly emulsified and treated biologically.",
+            "question": "How do jet aeration systems handle high fat content from poultry processing?"
+          },
+          {
+            "answer": "Our jet aeration systems typically achieve energy reductions of up to 40% compared to conventional diffused air or mechanical aeration methods. This is due to superior oxygen transfer efficiency across multiple transfer zones, reduced air flow requirements, and optimized hydraulic design that maximizes treatment effectiveness per unit of energy consumed.",
+            "question": "What energy savings can we expect compared to our current aeration system?"
+          },
+          {
+            "answer": "Absolutely. Our flexible aeration configurations are ideal for facilities with variable flow and load conditions. The systems offer flexible operation with variable air flow control, allowing you to adjust treatment intensity based on real-time processing schedules while maintaining consistent discharge quality.",
+            "question": "Can your systems handle variable loads from batch processing operations?"
+          },
+          {
+            "answer": "Installation timelines vary based on system size and complexity, but our prefabricated modular design significantly reduces on-site installation time. All mechanical assemblies are positioned outside tanks for easy access, and we work closely with your team to schedule installation during planned downtime or in phases to minimize operational disruption.",
+            "question": "How long does installation typically take, and will it disrupt our operations?"
+          },
+          {
+            "answer": "Our systems are designed for virtually maintenance-free operation. With no in-basin moving parts and all mechanical assemblies (pumps, blowers) positioned outside tanks for easy access, routine maintenance is minimal. Optional pneumatic backflush systems eliminate nozzle clogging concerns, and the robust stainless steel construction ensures long-term durability.",
+            "question": "What maintenance is required for jet aeration systems?"
+          },
+          {
+            "answer": "Yes. Our treatment systems are engineered to help facilities achieve compliance with federal, state, and local discharge regulations including EPA guidelines for meat and poultry processing facilities. We design systems based on your specific permit limits and can provide performance data from similar installations.",
+            "question": "Do you provide systems that meet USDA and EPA discharge requirements?"
+          },
+          {
+            "answer": "Our systems are built for durability with quality materials including stainless steel. With proper operation and routine maintenance, the equipment typically operates reliably for 20+ years. The absence of in-basin moving parts significantly extends service life compared to mechanical aerators and eliminates costly underwater repairs.",
+            "question": "What is the expected lifespan of your wastewater treatment equipment?"
+          }
+        ],
+        "section_title": "Frequently Asked Questions"
+      },
+      "hero": {
+        "cta_primary": {
+          "label": "Book Now",
+          "form_title": "Book Service",
+          "submit_label": "Book Now"
+        },
+        "cta_secondary": {
+          "label": "Call Us",
+          "form_title": "Request Call Back",
+          "submit_label": "Submit"
+        }
+      },
+      "team": {
+        "about": "Founded in 1985 by an engineer with now over 45 years of experience in jet aeration and mixing systems, Mixing Systems, Inc. has grown to become a preferred provider of submerged jet systems. Since our beginnings in Dayton, Ohio, we've supplied hundreds of wastewater treatment systems globally, serving industry leaders across food & beverage, bulk chemical, petrochemical, pharmaceutical, agriculture, poultry, dairy, and pulp & paper in addition to our extensive work with municipalities. A trusted resource to clients and engineers across water and wastewater, our success stems from an unwavering commitment to product excellence and customer satisfaction, continually striving to deliver aeration and mixing systems that offer superior durability, quality, and precision at competitive prices.",
+        "title": "Experienced Engineering Team",
+        "callouts": [
+          {
+            "key": "Hundreds",
+            "value": "Successful installations worldwide"
+          },
+          {
+            "key": "40+ Years",
+            "value": "Industry experience in jet aeration systems"
+          },
+          {
+            "key": "significant savings",
+            "value": "Energy reduction over conventional methods"
+          }
+        ],
+        "description": "Backed by over 40 years of wastewater treatment expertise."
+      },
+      "why_us": {
+        "tag": "The Mixing Systems Advantage",
+        "title": "Why Choose Mixing Systems for Poultry Wastewater Treatment?",
+        "content": [
+          {
+            "icon": "Factory",
+            "title": "Food Industry Expertise",
+            "description": "Decades of experience serving major poultry and meat processors with proven systems handling high organic loads, fats, and proteins specific to food processing applications."
+          },
+          {
+            "icon": "Lightning",
+            "title": "Energy Efficiency",
+            "description": "Achieve superior energy efficiency over conventional aeration methods with superior oxygen transfer efficiency, significantly reducing operating costs for continuous food processing operations."
+          },
+          {
+            "icon": "Wrench",
+            "title": "Virtually Maintenance-Free",
+            "description": "All mechanical components positioned outside tanks for easy access. No in-basin moving parts means minimal maintenance and uninterrupted operation—critical for continuous processing facilities."
+          },
+          {
+            "icon": "Blueprint",
+            "title": "Custom Engineered Systems",
+            "description": "Computer-aided design creates solutions tailored to your facility's specific flow rates, load characteristics, and space constraints, ensuring optimal performance and regulatory compliance."
+          }
+        ],
+        "description": "Over 40 years of specialized experience delivering superior treatment solutions to the food processing industry."
+      },
+      "contact": {
+        "title": "Ready to Optimize Your Poultry Wastewater Treatment?",
+        "form_title": "Contact Us Today",
+        "description": "Contact us for a free consultation. Our engineers will evaluate your facility's requirements and design a custom solution that meets your performance goals and budget.",
+        "email_prose": "You can also send us a quick email at {email}.",
+        "phone_prose": "For immediate assistance, feel free to give us a direct call at {phone}.",
+        "submit_label": "Request Custom Quote"
+      },
+      "location": {
+        "cta": {
+          "submit_label": "Submit",
+          "form_modal_title": "Service Location Inquiry"
+        }
+      },
+      "services": {
+        "cta": {
+          "submit_label": "Book Now",
+          "form_header_text": "Book the Service",
+          "learn_more_label": "Learn More",
+          "trigger_button_label": "Book Now"
+        },
+        "title": "Our Poultry Wastewater Treatment Services",
+        "content": [
+          {
+            "url": "jet-aeration-mixing-system",
+            "icon": "Droplets",
+            "title": "Jet Aeration Systems",
+            "description": "Submerged fine bubble diffused aeration utilizing ejector technology with multiple oxygen transfer zones. Ideal for high organic load poultry wastewater with superior mass transfer efficiency and energy savings up to 40% over conventional methods."
+          },
+          {
+            "url": "custom-aeration-system-design",
+            "icon": "Cylinder",
+            "title": "Flexible Aeration Configurations",
+            "description": "Complete aeration systems including pumps, blowers, aerators and piping. Custom-designed for batch treatment of poultry processing wastewater with flexible operation and high treatment efficiency for varying loads."
+          },
+          {
+            "url": "sludge-tank-mixer",
+            "icon": "ArrowsClockwise",
+            "title": "Hydraulic Sludge Mixing",
+            "description": "Specialized hydraulic mixing systems engineered for handling high solids content and fat-laden sludge from poultry operations. Ensures thorough mixing and solids suspension without in-basin moving parts for reliable, low-maintenance performance."
+          },
+          {
+            "url": "mixing-tank-water-treatment",
+            "icon": "FlowArrow",
+            "title": "Jet Mixing Systems",
+            "description": "Hydraulic-driven liquid/liquid mixing for blending and solids suspension in equalization tanks and holding basins. Cost-effective for large volume applications with capability to handle solid particles, ensuring homogeneity in poultry wastewater streams."
+          },
+          {
+            "url": "mixing-tank-water-treatment",
+            "icon": "ArrowsCounterClockwise",
+            "title": "Directional Mix Aerators",
+            "description": "DMJA systems creating flow patterns in rectangular and round tanks. Perfect for high-rate activated sludge treatment of poultry wastewater, aerobic digestion, and chemical oxidation applications with superior mixing performance."
+          },
+          {
+            "url": "food-processing-industry-wastewater-treatment-solutions",
+            "icon": "Gear",
+            "title": "Custom Treatment Solutions",
+            "description": "Engineered systems tailored to your facility's specific needs including specialized aerators, stainless steel configurations for food-grade requirements, and integration with existing infrastructure. Computer-aided design ensures optimal performance for your application."
+          }
+        ],
+        "description": "Complete treatment solutions designed for the demanding requirements of meat processing facilities and poultry operations."
+      },
+      "service_steps": {
+        "cta_submit_label": "Submit"
+      },
+      "success_stories": {
+        "tag": "Industry Leaders Trust Us",
+        "title": "Proven Performance",
+        "reviews": null,
+        "description": "Major food processors including Tyson Foods, Cargill, and ADM rely on our wastewater treatment systems."
+      },
+      "awards_recognition": {
+        "tag": "Trusted by Industry Leaders",
+        "content": [
+          {
+            "title": "40+ Years Experience",
+            "images": [
+              {
+                "context": "size:72x72#certification#1:1",
+                "alt_text": "40+ years of wastewater treatment expertise badge",
+                "image_id": null,
+                "image_url": "https://file-host.link/certifications/_default/72x72.svg",
+                "description": "40+ Years Experience certified"
+              }
+            ],
+            "description": "Four decades serving the wastewater treatment industry"
+          },
+          {
+            "title": "Global Installations",
+            "images": [
+              {
+                "context": "size:72x72#certification#1:1",
+                "alt_text": "Global installations achievement emblem",
+                "image_id": null,
+                "image_url": "https://file-host.link/certifications/_default/72x72.svg",
+                "description": "Global Installations certified"
+              }
+            ],
+            "description": "Hundreds of systems operating worldwide"
+          },
+          {
+            "title": "Fortune 500 Clients",
+            "images": [
+              {
+                "context": "size:72x72#certification#1:1",
+                "alt_text": "Fortune 500 client partnership recognition",
+                "image_id": null,
+                "image_url": "https://file-host.link/certifications/_default/72x72.svg",
+                "description": "Fortune 500 Clients certified"
+              }
+            ],
+            "description": "Serving industry leaders across multiple sectors"
+          }
+        ],
+        "heading": "Awards and Recognition"
+      },
+      "service_description": {
+        "tag": "Food Industry Expertise",
+        "title": "Engineered Solutions for Complex Poultry Processing Wastewater",
+        "images": [
+          {
+            "context": "#1:1",
+            "alt_text": "Jet aeration nozzles treating poultry wastewater with fine bubble diffusion",
+            "image_id": "fdc28ce8-6ce9-4739-9337-3950e3156ea4",
+            "description": "Close-up of submerged jet aerator nozzles generating fine bubbles in poultry processing wastewater treatment basin"
+          }
+        ],
+        "cta_text": "Request a Custom Design",
+        "description": "Poultry processing generates some of the most challenging wastewater streams in the food industry—high in organic content, fats, oils, proteins, and suspended solids. Our jet aeration and mixing systems are specifically designed to handle these demanding conditions. With micro-sized bubbles creating superior oxygen transfer, horizontal plume technology maintaining extended gas-liquid contact, and no in-basin moving parts, our systems deliver reliable treatment performance while slashing energy costs. From equalization to final treatment, we provide solutions that meet stringent discharge regulations.",
+        "cta_submit_label": "Submit"
+      }
+    },
+    "description": "Tackle the unique challenges of poultry processing wastewater with advanced jet aeration and mixing systems engineered for high organic loads, fats, and proteins. Our proven solutions deliver superior oxygen transfer efficiency, thorough solids suspension, and energy savings up to 40%, ensuring your facility meets strict environmental regulations while reducing operational costs in demanding meat processing environments.",
+    "published_at": 1771850057359,
+    "last_modified_at": 1781705318241,
+    "interlinking_description": "Comprehensive solutions for poultry and meat processing wastewater treatment featuring jet aeration systems, hydraulic mixing technology, and flexible aeration configurations. Specialized systems handle high organic loads, fats, and proteins while achieving superior oxygen transfer efficiency and energy savings for food processing facilities."
+  },
+  "difficulty": 0,
+  "page_status": "PUBLISHED",
+  "renderer_config": null
+}
