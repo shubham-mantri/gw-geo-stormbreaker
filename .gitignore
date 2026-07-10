@@ -32,3 +32,6 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Local raw answer/capture archive (GEO_RAW_ARCHIVE_DIR) — runtime data, never committed
+.raw_archive/
