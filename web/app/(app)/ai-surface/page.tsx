@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Bot,
   CheckCircle2,
   ChevronDown,
   FileJson,
@@ -12,7 +11,6 @@ import {
   Plug,
   PlugZap,
   RefreshCw,
-  Search,
   Send,
   Server,
 } from "lucide-react";
@@ -240,43 +238,24 @@ function McpHandshake({
   const [initRes, setInitRes] = useState<Record<string, unknown> | null>(null);
   const [toolsReq, setToolsReq] = useState<Record<string, unknown> | null>(null);
   const [toolsRes, setToolsRes] = useState<Record<string, unknown> | null>(null);
+  const [activeTab, setActiveTab] = useState<"requests" | "playground">("requests");
 
   const handleConnect = useCallback(async () => {
     setLoading(true);
-
-    // Step 1: initialize
-    const initBody = {
-      jsonrpc: "2.0",
-      id: 0,
-      method: "initialize",
-      params: { protocolVersion: "2025-06-18" },
-    };
+    const initBody = { jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-06-18" } };
     setInitReq(initBody);
-    const res1 = await fetch("/api/mcp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(initBody),
-    });
+    const res1 = await fetch("/api/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(initBody) });
     const initData = await res1.json();
     setInitRes(initData);
 
-    // Step 2: tools/list
-    const toolsBody = {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/list",
-      params: {},
-    };
+    const toolsBody = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
     setToolsReq(toolsBody);
-    const res2 = await fetch("/api/mcp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(toolsBody),
-    });
+    const res2 = await fetch("/api/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(toolsBody) });
     const toolsData = await res2.json();
     setToolsRes(toolsData);
 
     setLoading(false);
+    setActiveTab("requests");
     onConnect(initData.result, toolsData.result?.tools ?? []);
   }, [onConnect]);
 
@@ -285,6 +264,7 @@ function McpHandshake({
     setInitRes(null);
     setToolsReq(null);
     setToolsRes(null);
+    setActiveTab("requests");
     onDisconnect();
   }, [onDisconnect]);
 
@@ -292,89 +272,88 @@ function McpHandshake({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          {connected ? (
-            <PlugZap className="h-4 w-4 text-green-600" />
-          ) : (
-            <Plug className="h-4 w-4" />
-          )}
-          MCP Protocol Handshake
+          {connected ? <PlugZap className="h-4 w-4 text-green-600" /> : <Plug className="h-4 w-4" />}
+          MCP Protocol
         </CardTitle>
         <CardDescription>
-          The first two messages any MCP client sends — (1) negotiate protocol
-          version and discover capabilities, then (2) enumerate available tools.
+          {connected
+            ? "Connected — view the handshake exchange or test tools live."
+            : "Connect to negotiate protocol version, discover capabilities, and enumerate tools."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!connected ? (
-          <Button onClick={handleConnect} disabled={loading}>
-            {loading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Plug className="mr-2 h-4 w-4" />
-            )}
-            {loading ? "Connecting..." : "Connect"}
-          </Button>
-        ) : (
-          <Button variant="destructive" onClick={handleDisconnect}>
-            <PlugZap className="mr-2 h-4 w-4" />
-            Disconnect
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {!connected ? (
+            <Button onClick={handleConnect} disabled={loading}>
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plug className="mr-2 h-4 w-4" />}
+              {loading ? "Connecting..." : "Connect"}
+            </Button>
+          ) : (
+            <Button variant="destructive" size="sm" onClick={handleDisconnect}>
+              <PlugZap className="mr-2 h-4 w-4" />
+              Disconnect
+            </Button>
+          )}
+        </div>
 
-        {/* Step 1: initialize */}
-        {initReq && (
-          <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
-              Step 1 — initialize
-            </p>
-            <div>
-              <p className="mb-1 text-xs font-medium text-muted-foreground">
-                → Client Request (POST /api/mcp)
-              </p>
-              <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted/50 p-3 text-xs">
-                {JSON.stringify(initReq, null, 2)}
-              </pre>
+        {connected && (
+          <>
+            <div className="flex gap-1 rounded-lg bg-muted p-1">
+              <button
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${activeTab === "requests" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setActiveTab("requests")}
+              >
+                View Requests
+              </button>
+              <button
+                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${activeTab === "playground" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setActiveTab("playground")}
+              >
+                Tool Playground
+              </button>
             </div>
-            {initRes && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">
-                  ← Server Response
-                </p>
-                <pre className="whitespace-pre-wrap break-words rounded-md border bg-green-50 p-3 text-xs text-green-900">
-                  {JSON.stringify(initRes, null, 2)}
-                </pre>
+
+            {activeTab === "requests" && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold">Step 1 — initialize</p>
+                  {initReq && (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="mb-1 text-xs text-muted-foreground">→ Request</p>
+                        <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted/50 p-3 text-xs">{JSON.stringify(initReq, null, 2)}</pre>
+                      </div>
+                      {initRes && (
+                        <div>
+                          <p className="mb-1 text-xs text-muted-foreground">← Response</p>
+                          <pre className="whitespace-pre-wrap break-words rounded-md border bg-green-50 p-3 text-xs text-green-900">{JSON.stringify(initRes, null, 2)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold">Step 2 — tools/list</p>
+                  {toolsReq && (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="mb-1 text-xs text-muted-foreground">→ Request</p>
+                        <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted/50 p-3 text-xs">{JSON.stringify(toolsReq, null, 2)}</pre>
+                      </div>
+                      {toolsRes && (
+                        <div>
+                          <p className="mb-1 text-xs text-muted-foreground">← Response ({((toolsRes.result as Record<string, unknown[]>)?.tools?.length) ?? 0} tools)</p>
+                          <pre className="whitespace-pre-wrap break-words rounded-md border bg-green-50 p-3 text-xs text-green-900 max-h-64 overflow-y-auto">{JSON.stringify(toolsRes, null, 2)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
-          </div>
-        )}
 
-        {/* Step 2: tools/list */}
-        {toolsReq && (
-          <div className="space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground">
-              Step 2 — tools/list
-            </p>
-            <div>
-              <p className="mb-1 text-xs font-medium text-muted-foreground">
-                → Client Request (POST /api/mcp)
-              </p>
-              <pre className="whitespace-pre-wrap break-words rounded-md border bg-muted/50 p-3 text-xs">
-                {JSON.stringify(toolsReq, null, 2)}
-              </pre>
-            </div>
-            {toolsRes && (
-              <div>
-                <p className="mb-1 text-xs font-medium text-muted-foreground">
-                  ← Server Response ({(toolsRes as Record<string, unknown>).result
-                    ? ((toolsRes as Record<string, unknown>).result as Record<string, unknown[]>).tools?.length ?? 0
-                    : 0} tools)
-                </p>
-                <pre className="whitespace-pre-wrap break-words rounded-md border bg-green-50 p-3 text-xs text-green-900 max-h-64 overflow-y-auto">
-                  {JSON.stringify(toolsRes, null, 2)}
-                </pre>
-              </div>
-            )}
-          </div>
+            {activeTab === "playground" && <ToolPlayground />}
+          </>
         )}
       </CardContent>
     </Card>
@@ -382,6 +361,27 @@ function McpHandshake({
 }
 
 // ── MCP Tool Playground ─────────────────────────────────────────────────────
+
+type ToolDef = {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: string;
+    properties: Record<string, { type: string; description?: string; enum?: string[] }>;
+    required?: string[];
+  };
+};
+
+const TOOLS: ToolDef[] = [
+  { name: "search_site", description: "Search this website's pages. Returns ranked results with title, URL, and snippet.", inputSchema: { type: "object", properties: { query: { type: "string", description: "Search query" }, limit: { type: "number", description: "Max results (default 5, max 20)" } }, required: ["query"] } },
+  { name: "get_page", description: "Get full page content as markdown by path. Omit or empty for homepage.", inputSchema: { type: "object", properties: { path: { type: "string", description: "Page path (e.g. 'blog/my-post'). Empty = homepage." } } } },
+  { name: "list_pages", description: "List all pages with title, URL, description. Optionally filter by type.", inputSchema: { type: "object", properties: { type: { type: "string", enum: ["blog", "category", "service", "topics", "page"], description: "Optional page type filter" } } } },
+  { name: "get_business_info", description: "Get structured business info: name, address, phone, email, hours, service areas, certifications.", inputSchema: { type: "object", properties: {} } },
+  { name: "list_services", description: "List services this business offers, with descriptions.", inputSchema: { type: "object", properties: {} } },
+  { name: "list_products", description: "List products with attributes. Optionally filter by query.", inputSchema: { type: "object", properties: { query: { type: "string", description: "Optional filter on product names/attributes" } } } },
+  { name: "get_reviews", description: "Get customer reviews/testimonials.", inputSchema: { type: "object", properties: {} } },
+  { name: "submit_inquiry", description: "Submit a sales/contact inquiry on behalf of the user.", inputSchema: { type: "object", properties: { name: { type: "string", description: "User's name" }, email: { type: "string", description: "User's email" }, phone: { type: "string", description: "Phone (optional)" }, message: { type: "string", description: "What the user needs (max 2000 chars)" }, page_path: { type: "string", description: "Page/product path (optional)" } }, required: ["name", "email", "message"] } },
+];
 
 async function callMcpTool(
   toolName: string,
@@ -391,168 +391,127 @@ async function callMcpTool(
   const res = await fetch("/api/mcp", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name: toolName, arguments: args },
-    }),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: toolName, arguments: args } }),
   });
   const data = await res.json();
   return { result: data.result, latency: Math.round(performance.now() - start) };
 }
 
 function ToolPlayground() {
-  const [query, setQuery] = useState("");
-  const [pagePath, setPagePath] = useState("");
-  const [inquiryEmail, setInquiryEmail] = useState("");
-  const [inquiryMessage, setInquiryMessage] = useState("");
+  const [activeTool, setActiveTool] = useState<string>(TOOLS[0].name);
+  const [fieldValues, setFieldValues] = useState<Record<string, Record<string, string>>>({});
   const [results, setResults] = useState<ToolResult[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const runTool = useCallback(async (tool: string, args: Record<string, unknown>) => {
+  const tool = TOOLS.find((t) => t.name === activeTool)!;
+  const fields = Object.entries(tool.inputSchema.properties);
+  const required = tool.inputSchema.required ?? [];
+  const values = fieldValues[activeTool] ?? {};
+
+  const setField = useCallback((field: string, value: string) => {
+    setFieldValues((prev) => ({
+      ...prev,
+      [activeTool]: { ...(prev[activeTool] ?? {}), [field]: value },
+    }));
+  }, [activeTool]);
+
+  const canTest = required.every((f) => (values[f] ?? "").trim().length > 0);
+
+  const runTest = useCallback(async () => {
+    const args: Record<string, unknown> = {};
+    for (const [key] of fields) {
+      const v = (values[key] ?? "").trim();
+      if (v) args[key] = v;
+    }
     setLoading(true);
-    const { result, latency } = await callMcpTool(tool, args);
-    setResults((prev) => [{ tool, args, response: result, latency }, ...prev]);
+    const { result, latency } = await callMcpTool(activeTool, args);
+    setResults((prev) => [{ tool: activeTool, args, response: result, latency }, ...prev]);
     setLoading(false);
-  }, []);
+  }, [activeTool, fields, values]);
 
   return (
     <div className="space-y-4">
-      {/* search_site */}
-      <div className="flex gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="search_site — enter a query..."
-          onKeyDown={(e) => e.key === "Enter" && query.trim() && runTool("search_site", { query })}
-        />
-        <Button onClick={() => runTool("search_site", { query })} disabled={loading || !query.trim()}>
-          <Search className="mr-2 h-4 w-4" />
-          search_site
-        </Button>
-      </div>
-
-      {/* get_page */}
-      <div className="flex gap-2">
-        <Input
-          value={pagePath}
-          onChange={(e) => setPagePath(e.target.value)}
-          placeholder="get_page — enter a path (e.g. 'blog/my-post' or '' for homepage)..."
-          onKeyDown={(e) => e.key === "Enter" && runTool("get_page", { path: pagePath })}
-        />
-        <Button onClick={() => runTool("get_page", { path: pagePath })} disabled={loading}>
-          <FileText className="mr-2 h-4 w-4" />
-          get_page
-        </Button>
-      </div>
-
-      {/* Other tools */}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => runTool("list_pages", {})}
-          disabled={loading}
-        >
-          <Globe className="mr-1 h-3 w-3" />
-          list_pages
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => runTool("get_business_info", {})}
-          disabled={loading}
-        >
-          <Bot className="mr-1 h-3 w-3" />
-          get_business_info
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => runTool("list_services", {})}
-          disabled={loading}
-        >
-          list_services
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => runTool("list_products", {})}
-          disabled={loading}
-        >
-          list_products
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => runTool("get_reviews", {})}
-          disabled={loading}
-        >
-          get_reviews
-        </Button>
-      </div>
-
-      {/* submit_inquiry */}
-      <div className="flex flex-col gap-2 rounded-md border p-3">
-        <p className="text-xs font-medium text-muted-foreground">submit_inquiry — email &amp; message required</p>
-        <div className="flex gap-2">
-          <Input
-            value={inquiryEmail}
-            onChange={(e) => setInquiryEmail(e.target.value)}
-            placeholder="Email address"
-            className="flex-1"
-          />
-          <Input
-            value={inquiryMessage}
-            onChange={(e) => setInquiryMessage(e.target.value)}
-            placeholder="Message"
-            className="flex-[2]"
-            onKeyDown={(e) =>
-              e.key === "Enter" &&
-              inquiryEmail.trim() &&
-              inquiryMessage.trim() &&
-              runTool("submit_inquiry", {
-                name: "Demo User",
-                email: inquiryEmail,
-                message: inquiryMessage,
-              })
-            }
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              runTool("submit_inquiry", {
-                name: "Demo User",
-                email: inquiryEmail,
-                message: inquiryMessage,
-              })
-            }
-            disabled={loading || !inquiryEmail.trim() || !inquiryMessage.trim()}
+      {/* Tool tabs */}
+      <div className="flex flex-wrap gap-1.5">
+        {TOOLS.map((t) => (
+          <button
+            key={t.name}
+            className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${activeTool === t.name ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-primary/50"}`}
+            onClick={() => setActiveTool(t.name)}
           >
-            <Send className="mr-1 h-3 w-3" />
-            submit_inquiry
-          </Button>
-        </div>
+            {t.name}
+          </button>
+        ))}
       </div>
 
+      {/* Active tool detail */}
+      <div className="rounded-md border p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">{tool.name}</p>
+          <p className="text-xs text-muted-foreground">{tool.description}</p>
+        </div>
+
+        {fields.length > 0 ? (
+          <div className="space-y-2">
+            {fields.map(([key, schema]) => {
+              const isRequired = required.includes(key);
+              return (
+                <div key={key} className="space-y-1">
+                  <label className="flex items-center gap-1.5 text-xs font-medium">
+                    {key}
+                    {isRequired ? (
+                      <span className="rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700">required</span>
+                    ) : (
+                      <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] text-gray-500">optional</span>
+                    )}
+                  </label>
+                  {schema.enum ? (
+                    <select
+                      className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+                      value={values[key] ?? ""}
+                      onChange={(e) => setField(key, e.target.value)}
+                    >
+                      <option value="">— select —</option>
+                      {schema.enum.map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      value={values[key] ?? ""}
+                      onChange={(e) => setField(key, e.target.value)}
+                      placeholder={schema.description ?? key}
+                      onKeyDown={(e) => e.key === "Enter" && canTest && !loading && runTest()}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground italic">No parameters — this tool takes no input.</p>
+        )}
+
+        <Button onClick={runTest} disabled={loading || !canTest} size="sm">
+          {loading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Send className="mr-2 h-3 w-3" />}
+          {loading ? "Running..." : "Test"}
+        </Button>
+      </div>
+
+      {/* Results */}
       {results.length > 0 && (
         <div className="space-y-3">
           {results.map((r, i) => (
             <div key={i} className="rounded-md border bg-muted/50 p-3">
               <div className="mb-2 flex items-center justify-between">
-                <code className="text-xs font-semibold text-primary">
-                  tools/call → {r.tool}
-                </code>
-                <span className="text-xs text-muted-foreground">
-                  {r.latency}ms
-                </span>
+                <code className="text-xs font-semibold text-primary">tools/call → {r.tool}</code>
+                <span className="text-xs text-muted-foreground">{r.latency}ms</span>
               </div>
+              {Object.keys(r.args).length > 0 && (
+                <pre className="mb-2 whitespace-pre-wrap text-xs text-muted-foreground">{JSON.stringify(r.args, null, 2)}</pre>
+              )}
               <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-foreground/80">
-                {typeof r.response === "string"
-                  ? r.response
-                  : JSON.stringify(r.response, null, 2)}
+                {typeof r.response === "string" ? r.response : JSON.stringify(r.response, null, 2)}
               </pre>
             </div>
           ))}
@@ -686,11 +645,83 @@ function AiIndexViewer() {
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 
+type FoldId = "mcp-endpoint" | "llms-txt" | "mcp-discovery" | "ai-index";
+
+function StatusCard({
+  icon: Icon,
+  title,
+  path,
+  live,
+  foldId,
+  activeFold,
+  onSelect,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  path: string;
+  live: boolean;
+  foldId: FoldId;
+  activeFold: FoldId | null;
+  onSelect: (id: FoldId) => void;
+}) {
+  const isActive = activeFold === foldId;
+  return (
+    <Card
+      className={`cursor-pointer transition-colors hover:border-primary/50 ${isActive ? "border-primary ring-1 ring-primary/30" : ""}`}
+      onClick={() => onSelect(foldId)}
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <Icon className="h-4 w-4" />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between">
+          <code className="text-xs text-muted-foreground">{path}</code>
+          {live ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+              Live
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
+              Unavailable
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AiSurfacePage() {
   const [syncStats, setSyncStats] = useState<SyncStats | null>(null);
   const [syncedProject, setSyncedProject] = useState<Project | null>(null);
   const [synced, setSynced] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [activeFold, setActiveFold] = useState<FoldId | null>(null);
+
+  const foldRefs = {
+    "mcp-endpoint": useRef<HTMLDivElement>(null),
+    "llms-txt": useRef<HTMLDivElement>(null),
+    "mcp-discovery": useRef<HTMLDivElement>(null),
+    "ai-index": useRef<HTMLDivElement>(null),
+  };
+
+  const handleFoldSelect = useCallback((id: FoldId) => {
+    setActiveFold((prev) => {
+      const next = prev === id ? null : id;
+      if (next) {
+        setTimeout(() => {
+          foldRefs[id]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 50);
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSyncStart = useCallback(() => {
     setSynced(false);
@@ -763,150 +794,77 @@ export default function AiSurfacePage() {
             </Card>
           </div>
 
-          {/* Endpoint status cards — always visible after sync */}
+          {/* Endpoint status cards — clickable, scroll to fold */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                  <Server className="h-4 w-4" />
-                  MCP Endpoint
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <code className="text-xs text-muted-foreground">/api/mcp</code>
-                  {connected ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                      Live
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
-                      <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
-                      Unavailable
-                    </span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                  <FileText className="h-4 w-4" />
-                  llms.txt
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <code className="text-xs text-muted-foreground">/llms.txt</code>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                    Live
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                  <Globe className="h-4 w-4" />
-                  MCP Discovery
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <code className="text-xs text-muted-foreground">/.well-known/mcp</code>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                    Live
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                  <FileJson className="h-4 w-4" />
-                  ai-index.json
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <code className="text-xs text-muted-foreground">/ai-index.json</code>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-                    <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                    Live
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
+            <StatusCard icon={FileJson} title="ai-index.json" path="/ai-index.json" live foldId="ai-index" activeFold={activeFold} onSelect={handleFoldSelect} />
+            <StatusCard icon={FileText} title="llms.txt" path="/llms.txt" live foldId="llms-txt" activeFold={activeFold} onSelect={handleFoldSelect} />
+            <StatusCard icon={Globe} title="MCP Discovery" path="/.well-known/mcp" live foldId="mcp-discovery" activeFold={activeFold} onSelect={handleFoldSelect} />
+            <StatusCard icon={Server} title="MCP Endpoint" path="/api/mcp" live={connected} foldId="mcp-endpoint" activeFold={activeFold} onSelect={handleFoldSelect} />
           </div>
 
-          {/* Static content — available immediately after sync (no handshake needed) */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">MCP Discovery Document</CardTitle>
-              <CardDescription>
-                GET /.well-known/mcp — the equivalent of robots.txt for AI agents.
-                Any MCP client checks this URL to discover available servers.
-                This includes {syncedProject.name}&apos;s info.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <McpDiscovery />
-            </CardContent>
-          </Card>
+          {/* Folds — shown when the corresponding card is active */}
+          {activeFold === "mcp-discovery" && (
+            <div ref={foldRefs["mcp-discovery"]}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">MCP Discovery Document</CardTitle>
+                  <CardDescription>
+                    GET /.well-known/mcp — the equivalent of robots.txt for AI agents.
+                    Any MCP client checks this URL to discover available servers.
+                    This includes {syncedProject.name}&apos;s info.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <McpDiscovery />
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">llms.txt</CardTitle>
-              <CardDescription>
-                Machine-readable site overview for AI crawlers. Click to view the
-                generated content for {syncedProject.name}.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <LlmsTxtViewer />
-            </CardContent>
-          </Card>
+          {activeFold === "llms-txt" && (
+            <div ref={foldRefs["llms-txt"]}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">llms.txt</CardTitle>
+                  <CardDescription>
+                    Machine-readable site overview for AI crawlers. Click to view the
+                    generated content for {syncedProject.name}.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <LlmsTxtViewer />
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">ai-index.json</CardTitle>
-              <CardDescription>
-                The structured data store that powers MCP tools and llms.txt.
-                This is the internal representation built from {syncedProject.name}&apos;s
-                content — every tool query reads from this.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AiIndexViewer />
-            </CardContent>
-          </Card>
+          {activeFold === "ai-index" && (
+            <div ref={foldRefs["ai-index"]}>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">ai-index.json</CardTitle>
+                  <CardDescription>
+                    The structured data store that powers MCP tools and llms.txt.
+                    This is the internal representation built from {syncedProject.name}&apos;s
+                    content — every tool query reads from this.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AiIndexViewer />
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
-          {/* MCP Handshake — gate for tool execution */}
-          <McpHandshake
-            connected={connected}
-            onConnect={handleConnect}
-            onDisconnect={handleDisconnect}
-          />
+          <div ref={foldRefs["mcp-endpoint"]} className={activeFold === "mcp-endpoint" ? "" : "hidden"}>
+            <McpHandshake
+              connected={connected}
+              onConnect={handleConnect}
+              onDisconnect={handleDisconnect}
+            />
+          </div>
+
         </>
-      )}
-
-      {/* After handshake — only Tool Playground needs a live session */}
-      {connected && syncedProject && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Tool Playground</CardTitle>
-            <CardDescription>
-              Call any of the 8 MCP tools live. Each call is a real JSON-RPC
-              POST to /api/mcp serving {syncedProject.name}&apos;s data.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ToolPlayground />
-          </CardContent>
-        </Card>
       )}
     </div>
   );
