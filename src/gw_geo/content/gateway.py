@@ -39,6 +39,7 @@ from gw_geo.content.kb import (
     PortkeyEmbeddingClient,
     build_vector_store,
 )
+from gw_geo.content.llm_bedrock import BedrockLLMClient
 from gw_geo.content.llm_local import LocalClaudeCliClient
 
 # Cheap default for the high-volume content + guardrail chat calls; overridable per call site.
@@ -61,6 +62,8 @@ def resolve_chat_model(session: SASession, *, gateway: str, settings: Settings) 
         return row.chat_model
     if gateway == "local_claude":
         return settings.claude_cli_model
+    if gateway == "bedrock":
+        return settings.bedrock_model_id
     return DEFAULT_CHAT_MODEL
 
 
@@ -115,6 +118,11 @@ def build_llm_client(
     """
     if settings.llm_gateway == "local_claude":
         return build_local_claude_client(settings, model=model, allow_web_search=allow_web_search)
+    if settings.llm_gateway == "bedrock":
+        return BedrockLLMClient(
+            model_id=model if model is not None else settings.bedrock_model_id,
+            region=settings.bedrock_region or settings.aws_region,
+        )
     client = build_portkey_client(settings)
     if client is not None:
         return PortkeyLLMClient(client, model=model if model is not None else DEFAULT_CHAT_MODEL)
@@ -142,12 +150,20 @@ def build_embedder(settings: Settings) -> EmbeddingClient:
 
 
 def build_claim_extractor(settings: Settings, *, model: str | None = None) -> ClaimExtractor:
-    """The claim-verification `ClaimExtractor`: local Claude when `local_claude`, else Portkey/direct.
+    """The claim-verification `ClaimExtractor`: local Claude when `local_claude`, Bedrock when
+    `bedrock`, else Portkey/direct.
 
     `model` threads the DB-resolved chat model through the selected gateway; `None` preserves each
     path's prior default (see `build_llm_client`)."""
     if settings.llm_gateway == "local_claude":
         return LLMClaimExtractor(llm=build_local_claude_client(settings, model=model))
+    if settings.llm_gateway == "bedrock":
+        return LLMClaimExtractor(
+            llm=BedrockLLMClient(
+                model_id=model if model is not None else settings.bedrock_model_id,
+                region=settings.bedrock_region or settings.aws_region,
+            )
+        )
     client = build_portkey_client(settings)
     if client is not None:
         return LLMClaimExtractor(
@@ -157,12 +173,20 @@ def build_claim_extractor(settings: Settings, *, model: str | None = None) -> Cl
 
 
 def build_voice_scorer(settings: Settings, *, model: str | None = None) -> VoiceScorer:
-    """The brand-voice `VoiceScorer`: local Claude when `local_claude`, else Portkey/direct.
+    """The brand-voice `VoiceScorer`: local Claude when `local_claude`, Bedrock when `bedrock`,
+    else Portkey/direct.
 
     `model` threads the DB-resolved chat model through the selected gateway; `None` preserves each
     path's prior default (see `build_llm_client`)."""
     if settings.llm_gateway == "local_claude":
         return LLMVoiceScorer(llm=build_local_claude_client(settings, model=model))
+    if settings.llm_gateway == "bedrock":
+        return LLMVoiceScorer(
+            llm=BedrockLLMClient(
+                model_id=model if model is not None else settings.bedrock_model_id,
+                region=settings.bedrock_region or settings.aws_region,
+            )
+        )
     client = build_portkey_client(settings)
     if client is not None:
         return LLMVoiceScorer(

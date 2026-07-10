@@ -108,12 +108,21 @@ class Settings(BaseSettings):
     # (see `content.llm_local.LocalClaudeCliClient` + the `claude_cli_*` settings below).
     # `"portkey"` routes through the Portkey gateway (needs `portkey_api_key`; provider routing /
     # virtual keys live in the dashboard Config, not in code). `"direct"` hits the providers
-    # directly via the per-provider keys above (`anthropic_api_key` / `openai_api_key`). Embeddings
-    # are never served by local Claude -- they always fall to Portkey (when keyed) or direct OpenAI.
-    llm_gateway: str = "local_claude"         # "local_claude" | "portkey" | "direct"
+    # directly via the per-provider keys above (`anthropic_api_key` / `openai_api_key`).
+    # `"bedrock"` routes through AWS Bedrock's Converse API (auth via AWS credentials / IAM role).
+    # Embeddings are never served by local Claude -- they always fall to Portkey (when keyed) or
+    # direct OpenAI.
+    llm_gateway: str = "local_claude"         # "local_claude" | "portkey" | "direct" | "bedrock"
     portkey_api_key: str = ""
     portkey_base_url: str = "https://api.portkey.ai/v1"
     portkey_config: str = "pc-portke-0dd3de"  # dashboard Config id holding the provider virtual keys
+
+    # AWS Bedrock (llm_gateway="bedrock"): auth via standard AWS credentials (env vars, IAM role,
+    # or instance profile). `bedrock_model_id` is the full Bedrock model ID; `bedrock_region`
+    # overrides `aws_region` for the Bedrock runtime client (useful when model access is in a
+    # different region from S3/other AWS services).
+    bedrock_model_id: str = "us.anthropic.claude-sonnet-4-20250514"
+    bedrock_region: str = ""                  # falls back to `aws_region` when empty
 
     # Local Claude CLI (llm_gateway="local_claude"): how `LocalClaudeCliClient` invokes `claude -p`.
     # `claude_cli_config_dir` selects the Claude Max profile (expanduser'd at use); no API key.

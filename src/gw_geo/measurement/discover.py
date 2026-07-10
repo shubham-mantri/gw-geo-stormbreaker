@@ -20,6 +20,7 @@ import httpx
 
 from gw_geo.common.config import get_settings
 from gw_geo.common.models import Brand, Prompt
+from gw_geo.content.generate import LLMClient
 
 # --------------------------------------------------------------------------------------------
 # PromptExpander protocol + build_prompt_set()
@@ -197,4 +198,58 @@ class LLMExpander:
         )
 
 
-__all__ = ["LLMExpander", "PromptExpander", "build_prompt_set"]
+class LLMClientExpander:
+    """`PromptExpander` routed through the content-side `LLMClient` gateway.
+
+    Wraps any `LLMClient` (Bedrock, local Claude, Portkey, etc.) the same way `LLMExtractor` wraps
+    `LLMClient` for answer extraction. Uses `LLMClient.complete(..., schema=...)` with the same
+    prompt and schema as `LLMExpander`, so the gateway flag that routes content generation also
+    routes prompt expansion -- no separate direct-Anthropic call needed.
+    """
+
+    _SCHEMA: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "prompts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string"},
+                        "intent_cluster": {"type": "string"},
+                    },
+                    "required": ["text", "intent_cluster"],
+                },
+            },
+        },
+        "required": ["prompts"],
+    }
+
+    def __init__(self, llm: LLMClient) -> None:
+        self._llm = llm
+
+    def expand(self, brand: Brand, seed_topics: list[str], size: int) -> list[dict[str, Any]]:
+        topics = ", ".join(seed_topics)
+        prompt = (
+            f"Brand: {brand.name} ({brand.domain}).\n\n"
+            f"Seed topics: {topics}.\n\n"
+            f"Generate up to {size} realistic buyer-intent prompts that a prospective customer "
+            "might type into an AI search engine (e.g. Perplexity, ChatGPT) while researching "
+            "options in this space. Paraphrase and expand each seed topic into natural-language "
+            "questions spanning the buyer journey (awareness, evaluation, comparison, decision). "
+            "For each prompt, assign a short `intent_cluster` label (e.g. 'evaluation', "
+            "'comparison', 'pricing', 'how-to'). Do not mention the brand by name in the "
+            "generated prompts — these simulate a prospective customer who does not yet know "
+            "the brand."
+        )
+        result = self._llm.complete(
+            system="You expand seed topics into buyer-intent prompts for AI search engines. "
+            "Respond only via the requested tool call / structured output.",
+            prompt=prompt,
+            schema=self._SCHEMA,
+        )
+        prompts: list[dict[str, Any]] = result.get("prompts", [])
+        return prompts
+
+
+__all__ = ["LLMClientExpander", "LLMExpander", "PromptExpander", "build_prompt_set"]
