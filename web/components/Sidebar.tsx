@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bell,
+  Bot,
   DollarSign,
   Eye,
   FileText,
@@ -27,6 +28,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Content", href: "/content", icon: FileText },
   { label: "Pipeline", href: "/pipeline", icon: DollarSign },
   { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "AI Surface", href: "/ai-surface", icon: Bot },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 

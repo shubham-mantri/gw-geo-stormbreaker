@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Entry route → send to login; the app guard bounces authed users onward. */
+/** Entry route → send to AI Surface demo page. */
 export default function RootPage(): never {
-  redirect("/login");
+  redirect("/ai-surface");
 }

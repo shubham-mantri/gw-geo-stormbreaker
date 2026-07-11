@@ -1,0 +1,82 @@
+{
+  "id": "0b62c462-776a-487d-9653-a9df6a89e930",
+  "details": {
+    "image_id": "a5b4cc11-ad17-4285-9396-1143aef87ee0",
+    "filter_data": {
+      "System Type": [
+        "Aeration System"
+      ],
+      "Application Type": [
+        "Wastewater Treatment"
+      ],
+      "Tank Depth Range (feet)": {
+        "max": 65,
+        "min": 10
+      },
+      "Materials of Construction": [
+        "Fiberglass Reinforced Plastic (FRP)",
+        "316 Stainless Steel"
+      ]
+    },
+    "product_key": "lagoon aeration system",
+    "manufacturer": "Mixing Systems, Inc.",
+    "product_name": "Submersible Jet Aerators",
+    "product_media": [
+      {
+        "url": "https://file-host.link/website/mixing-rl03u7/assets/refined-images/1770836254131182_9e071d743271484bba60945f7ee3f765/1080.webp"
+      }
+    ],
+    "support_service": [
+      "Technical Support",
+      "Installation Service",
+      "Custom engineering and design for specific applications",
+      "Maintenance Service Plans",
+      "Backflush system installation and training"
+    ],
+    "served_locations": [
+      "USA",
+      "Canada",
+      "Mexico"
+    ],
+    "shipping_returns": "Systems are shipped in pre-fabricated sections for rapid, simple installation. Equipment designed for a twenty year life with minimal field installation labor required. Warranty details available upon request.",
+    "key_features_usps": [
+      "Energy efficient with up to 40% energy reduction compared to conventional diffused aeration systems",
+      "Low maintenance design with no moving parts in jet nozzles and no small passages to clog",
+      "Optional pneumatic backflush system virtually eliminates in-basin maintenance and manual cleaning",
+      "Suitable for deep tanks up to 65 feet with high oxygen transfer efficiency",
+      "All aeration and mixing occurs below surface eliminating mist, spray, and icing problems",
+      "Energy efficient"
+    ],
+    "ownership_options": [
+      "Purchase"
+    ],
+    "product_identifier": null,
+    "pricing_information": "Pricing Available on Request",
+    "applications_use_cases": [
+      "Activated sludge treatment in pulp and paper mills",
+      "Lagoon aeration for industrial wastewater treatment",
+      "Aerobic sludge digesters",
+      "Oxidation ditches and oxidation channels",
+      "Petrochemical wastewater treatment",
+      "Poultry processing wastewater treatment",
+      "Equalization basins and storm holding tanks",
+      "BOD and COD removal in municipal and industrial applications"
+    ],
+    "regulatory_information": [
+      "Designed for compliance with wastewater treatment standards",
+      "Suitable for applications requiring low VOC emissions and minimal off-gases",
+      "Achieves acceptable AOX levels in effluent for pulp and paper mill applications"
+    ],
+    "associate_certifications": null,
+    "technical_specifications": {
+      "Bubble Size": "very fine bubble diffusion",
+      "Nozzle Type": "Double nozzle arrangement with primary inner nozzle, intermediate high shear mixing chamber, and outer secondary nozzle",
+      "Tank Depth Range": "10 to 65 ft (4 to 20 meters)",
+      "System Components": "Aeration manifolds, recirculation pumps, blowers",
+      "Flow Pattern Options": "Circular flow, plug flow, bidirectional flow",
+      "Operating Temperature": "Designed for sub-zero to high temperature operations",
+      "Materials of Construction": "Fiberglass Reinforced Plastic (FRP) or Stainless Steel (316)",
+      "Oxygen Transfer Efficiency": "upto 5.0 lbs O2/HP-hr at standard conditions"
+    }
+  }
+}

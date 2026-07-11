@@ -1,0 +1,284 @@
+{
+  "id": "1602d512-8072-47e2-9a8b-d08fb37ce0dd",
+  "slug": "food-processing-industry-wastewater-treatment-solutions",
+  "volume": 110,
+  "page_info": {
+    "meta": {
+      "page_title": "Food Processing Wastewater Treatment Solutions for Food & Beverage Industry",
+      "schema_markup": "{\"@context\":\"https://schema.org\",\"@type\":\"Service\",\"serviceType\":\"Food Processing Wastewater Treatment Solutions\",\"provider\":{\"@type\":\"Organization\",\"name\":\"Mixing Systems, Inc.\",\"foundingDate\":\"1985\",\"description\":\"Manufacturer of jet aeration and jet mixing systems for wastewater treatment, specializing in food and beverage industry applications.\",\"address\":{\"@type\":\"PostalAddress\",\"streetAddress\":\"7058 Corporate Way\",\"addressLocality\":\"Dayton\",\"addressRegion\":\"OH\",\"postalCode\":\"45459\",\"addressCountry\":\"USA\"},\"telephone\":\"+1-937-435-7227\",\"email\":\"mixing@mixing.com\",\"areaServed\":[\"USA\",\"Canada\",\"Europe\",\"Asia\",\"Puerto Rico\",\"Saudi Arabia\",\"Indonesia\",\"Norway\",\"Denmark\",\"Spain\",\"Switzerland\"]},\"description\":\"Advanced jet aeration and mixing systems designed specifically for food and beverage industry wastewater treatment, delivering superior oxygen transfer efficiency with energy savings up to 40% compared to conventional methods.\",\"audience\":{\"@type\":\"Audience\",\"audienceType\":\"Food and Beverage Industry\"},\"offers\":{\"@type\":\"Offer\",\"availability\":\"https://schema.org/InStock\"},\"hasOfferCatalog\":{\"@type\":\"OfferCatalog\",\"name\":\"Food Processing Wastewater Treatment Services\",\"itemListElement\":[{\"@type\":\"Offer\",\"itemOffered\":{\"@type\":\"Service\",\"name\":\"Jet Aeration Systems\"}},{\"@type\":\"Offer\",\"itemOffered\":{\"@type\":\"Service\",\"name\":\"aeration configurations\"}},{\"@type\":\"Offer\",\"itemOffered\":{\"@type\":\"Service\",\"name\":\"Hydraulic Mixing Systems\"}},{\"@type\":\"Offer\",\"itemOffered\":{\"@type\":\"Service\",\"name\":\"Custom Treatment Solutions\"}}]}}",
+      "page_description": "Advanced jet aeration wastewater treatment systems for food processing facilities. Energy savings up to 40%, superior oxygen transfer, minimal maintenance. Trusted by Tyson, Cargill, Anheuser Busch. Free consultation."
+    },
+    "name": "Food Processing Wastewater Treatment Solutions for Food & Beverage Industry",
+    "title": "Food Processing <span class='text-brand-primary'>Wastewater Treatment</span> Solutions for Food & Beverage Industry",
+    "images": [
+      {
+        "context": "#1:1",
+        "alt_text": "Industrial food processing wastewater treatment facility with advanced jet aeration systems",
+        "image_id": "bbca6e56-fa6c-4e65-98b8-7a29e3d5e573",
+        "description": "Large-scale industrial wastewater treatment system with submerged jet aerators in circular tanks at food processing facility"
+      }
+    ],
+    "fold_data": {
+      "faq": {
+        "cta": {
+          "heading": "Have Questions About Your Wastewater Treatment Needs?",
+          "cta_text": "Speak with an Engineer",
+          "form_title": "Service Inquiry",
+          "description": "Our wastewater treatment engineers are ready to discuss your food processing facility's specific challenges and requirements.",
+          "submit_label": "Submit"
+        },
+        "content": [
+          {
+            "answer": "Jet aeration systems provide superior oxygen transfer through multiple transfer zones, creating micro-bubbles that remain in contact with wastewater longer than conventional systems. This results in more efficient treatment of high-BOD food processing wastewater while reducing energy consumption. All mechanical components are positioned outside tanks for easy maintenance, eliminating the downtime issues common with in-basin equipment.",
+            "question": "What makes jet aeration systems better for food processing wastewater than traditional methods?"
+          },
+          {
+            "answer": "Yes, our systems are specifically designed for the variable flow and organic loading patterns inherent in food processing operations. Jet aeration provides flexible operation with variable air flow control, allowing real-time adjustments to match your production schedule. Flexible aeration configurations are particularly effective for facilities with batch production processes and fluctuating wastewater characteristics.",
+            "question": "Can your systems handle the varying organic loads typical in food production facilities?"
+          },
+          {
+            "answer": "Our engineered solutions are designed to treat wastewater from meat processing, poultry operations, dairy facilities, breweries, soft drink production, corn processing, baking operations, and other food manufacturing sectors. We provide specialized process engineering and system design to address diverse wastewater challenges across the food and beverage industry.",
+            "question": "What types of food processing wastewater can your systems treat?"
+          },
+          {
+            "answer": "Jet aeration systems are often more space-efficient than comparable diffused aeration systems because compact jet aerators can be configured for circular or rectangular tanks of various sizes. For large-scale facilities, multiple aerators can be incorporated into the engineered system design. Our team evaluates your available space and develops a customized engineering solution optimized for your specific footprint constraints.",
+            "question": "How much space is required for a jet aeration wastewater treatment system?"
+          },
+          {
+            "answer": "Project timelines vary depending on system size and complexity. As an engineering-focused company, we provide detailed system design, technical documentation, and engineering support to facilitate efficient installation by your appointed contractors. During the engineering phase, we develop comprehensive design packages and implementation guidance aligned with your production schedule to help minimize disruption to ongoing operations.",
+            "question": "What is the typical installation timeline for a food processing wastewater system?"
+          },
+          {
+            "answer": "Yes, we offer stainless steel construction for applications requiring food-grade materials and enhanced corrosion resistance. Stainless steel systems are ideal for facilities with stringent sanitation requirements, including pharmaceutical-grade food ingredient production, dairy processing, and beverage manufacturing where equipment must meet food safety standards.",
+            "question": "Are stainless steel systems available for sanitary food processing environments?"
+          },
+          {
+            "answer": "Food processing facilities typically achieve energy reductions compared to conventional aeration methods. Actual savings depend on your current system efficiency, wastewater characteristics, and treatment requirements. During system design, we provide energy consumption projections and calculate expected operating cost reductions based on your specific application and local utility rates.",
+            "question": "How much can we expect to save on energy costs with a jet aeration system?"
+          },
+          {
+            "answer": "Jet aeration systems require minimal maintenance because all mechanical assemblies are located outside tanks for easy access and service. There are no in-basin moving parts to fail or require underwater maintenance. Optional pneumatic backflush systems prevent nozzle clogging. Routine maintenance typically involves periodic pump inspection, air filter replacement, and annual system performance verification—significantly less than conventional diffused aeration systems.",
+            "question": "What ongoing maintenance is required for jet aeration systems?"
+          }
+        ],
+        "section_title": "Frequently Asked Questions"
+      },
+      "hero": {
+        "cta_primary": {
+          "label": "Book Now",
+          "form_title": "Book Service",
+          "submit_label": "Book Now"
+        },
+        "cta_secondary": {
+          "label": "Call Us",
+          "form_title": "Request Call Back",
+          "submit_label": "Submit"
+        }
+      },
+      "team": {
+        "about": "Founded in 1985 by an engineer with now over 45 years of experience in jet aeration and mixing systems, Mixing Systems, Inc. has grown to become a preferred provider of submerged jet systems. Since our beginnings in Dayton, Ohio, we've supplied hundreds of wastewater treatment systems globally, serving industry leaders across food & beverage, bulk chemical, petrochemical, pharmaceutical, agriculture, poultry, dairy, and pulp & paper in addition to our extensive work with municipalities . A trusted resource to clients and engineers across water and wastewater, our success stems from an unwavering commitment to product excellence and customer satisfaction, continually striving to deliver aeration and mixing systems that offer superior durability, quality, and precision at competitive prices.",
+        "title": "Experienced Wastewater Treatment Engineers",
+        "callouts": [
+          {
+            "key": "Hundreds",
+            "value": "Engineered systems in operation worldwide"
+          },
+          {
+            "key": "40+ Years",
+            "value": "Engineering wastewater solutions"
+          },
+          {
+            "key": "Optimized Energy Efficiency",
+            "value": "Energy savings over conventional systems"
+          }
+        ],
+        "description": "Meet the team dedicated to solving your food processing wastewater challenges."
+      },
+      "why_us": {
+        "tag": "The Mixing Systems Advantage",
+        "title": "Why Choose Mixing Systems for Food Processing Wastewater Treatment?",
+        "content": [
+          {
+            "icon": "Factory",
+            "title": "Food Industry Specialization",
+            "description": "Extensive engineering experience with high-BOD wastewater from meat processing, brewing, dairy, corn processing, and specialty food manufacturing. Our team develops process designs and technical solutions tailored to the complex wastewater challenges of the food and beverage industry."
+          },
+          {
+            "icon": "Lightning",
+            "title": "Energy Efficiency",
+            "description": "Our jet aeration systems reduce operating power costs compared to conventional diffused air methods, delivering superior oxygen transfer efficiency while lowering your facility's energy footprint and treatment expenses."
+          },
+          {
+            "icon": "Wrench",
+            "title": "Virtually Maintenance-Free",
+            "description": "All mechanical components positioned outside tanks for easy access. No in-basin moving parts means minimal maintenance requirements. Optional pneumatic backflush eliminates clogging issues, ensuring continuous operation critical for 24/7 food production facilities."
+          },
+          {
+            "icon": "CheckCircle",
+            "title": "Comprehensive Solutions",
+            "description": "From initial process engineering through detailed design documentation, we develop complete wastewater treatment system designs including equipment specifications and layout drawings. Our computer-aided engineering approach ensures optimized performance for your specific application and site conditions."
+          }
+        ],
+        "description": "Four decades of expertise delivering energy-efficient, reliable wastewater solutions to the food and beverage industry."
+      },
+      "contact": {
+        "title": "Ready to Optimize Your Food Processing Wastewater Treatment?",
+        "form_title": "Contact Us Today",
+        "description": "Contact our engineering team to discuss your facility's wastewater challenges and receive a custom solution proposal.",
+        "email_prose": "You can also send us a quick email at {email}.",
+        "phone_prose": "For immediate assistance, feel free to give us a direct call at {phone}.",
+        "submit_label": "Request Custom Quote"
+      },
+      "location": {
+        "cta": {
+          "submit_label": "Submit",
+          "form_modal_title": "Service Location Inquiry"
+        }
+      },
+      "services": {
+        "cta": {
+          "submit_label": "Book Now",
+          "form_header_text": "Book the Service",
+          "learn_more_label": "Learn More",
+          "trigger_button_label": "Book Now"
+        },
+        "title": "Our Food Processing Wastewater Treatment Services",
+        "content": [
+          {
+            "url": "jet-aeration-mixing-system",
+            "icon": "Droplets",
+            "title": "Jet Aeration Systems",
+            "description": "Advanced submerged jet aeration technology creating micro-bubbles for superior oxygen transfer in high-BOD food processing wastewater. Multiple oxygen transfer zones ensure thorough treatment of organic loads from meat, dairy, and beverage production"
+          },
+          {
+            "url": "custom-aeration-system-design",
+            "icon": "Circuitry",
+            "title": "Flexible Aeration Configurations",
+            "description": "Complete wastewater aeration systems with pumps, blowers, and automated controls specifically configured for food industry wastewater. Ideal for facilities requiring flexible treatment schedules and handling variable organic loads from batch production processes."
+          },
+          {
+            "url": "sludge-tank-mixer",
+            "icon": "FlowArrow",
+            "title": "Hydraulic Mixing Systems",
+            "description": "Custom-designed jet mixing solutions for food waste sludge management and equalization tanks. Prevents settling and ensures consistent feed to biological treatment systems, critical for maintaining stable treatment performance in high-solids food processing wastewater."
+          },
+          {
+            "url": "poultry-wastewater-treatment",
+            "icon": "Gear",
+            "title": "Custom Treatment Solutions",
+            "description": "Engineered-to-order wastewater systems designed for unique food processing challenges including brewery operations, corn processing, beverage production, and specialty food manufacturing. Includes stainless steel construction options meeting stringent food industry sanitation standards."
+          },
+          {
+            "url": "municipal-wastewater-treatment-equipment",
+            "icon": "Recycle",
+            "title": "Aerobic Digestion Systems",
+            "description": "Engineered aerobic digestion system designs for stabilizing food processing sludge prior to disposal. Our solutions reduce sludge volume and control odors while meeting discharge requirements for meat processing, dairy, and other high-organic-content waste streams."
+          },
+          {
+            "url": "custom-industrial-mixing",
+            "icon": "Briefcase",
+            "title": "Comprehensive Solutions",
+            "description": "Full-scope engineering services including process design, equipment specification, and technical documentation. We provide detailed design packages and engineering support to facilitate seamless integration with your existing food production operations."
+          }
+        ],
+        "description": "Complete wastewater treatment solutions engineered specifically for food and beverage operations, from system design and optimization."
+      },
+      "service_steps": {
+        "title": "Our 5-Step Food Processing Wastewater Treatment Process",
+        "images": [
+          {
+            "context": "#1:1",
+            "alt_text": "Engineers reviewing food processing wastewater treatment system blueprints and equipment",
+            "image_id": "791bc9d3-35ea-4703-8e6f-dd3e301b275a",
+            "description": "Industrial engineers examining technical drawings and wastewater treatment equipment components at manufacturing facility"
+          }
+        ],
+        "content": [
+          {
+            "title": "Site Assessment and Wastewater Characterization",
+            "description": "Our engineers conduct comprehensive analysis of your food processing wastewater including flow rates, BOD/COD levels, pH variations, and production schedules. We evaluate existing infrastructure and space constraints to design the optimal treatment solution for your specific food production operations, whether meat processing, brewing, dairy, or other food manufacturing applications."
+          },
+          {
+            "title": "Custom System Design and Engineering",
+            "description": "Using computer-aided design tools, we engineer wastewater treatment systems precisely configured for your facility's organic loading, flow patterns, and discharge requirements. Our designs incorporate the appropriate jet aeration configuration—DMJA, BMJA, or EMJA—along with mixing systems, tankage, and controls optimized for food industry applications and regulatory compliance."
+          },
+          {
+            "title": "Equipment Manufacturing and Quality Control",
+            "description": "All jet aerators, mixers, and system components are manufactured in-house to exacting standards. Food-grade stainless steel options are available for sanitary applications. Each nozzle assembly, pump, and control system undergoes rigorous quality testing to ensure durability and precision performance in demanding food processing environments."
+          },
+          {
+            "title": "System Design and Engineering",
+            "description": "Our engineering team provides detailed designs and specifications for tanks, piping, aerators, pumps, and controls. Prefabricated sections are engineered for efficient assembly by your chosen contractors, ensuring minimal disruption to your production operations. All mechanical assemblies are designed for easy access and future maintenance."
+          },
+          {
+            "title": "Startup, Training, and Performance Optimization",
+            "description": "We provide comprehensive startup services including system commissioning, operator training, and performance testing to verify oxygen transfer efficiency and treatment effectiveness. Our team works with your staff to optimize air flow rates, pump operations, and control strategies, ensuring you achieve target effluent quality while minimizing energy consumption and operating costs."
+          }
+        ],
+        "cta_text": "Start Your Wastewater Solution",
+        "cta_submit_label": "Submit"
+      },
+      "success_stories": {
+        "tag": "Proven Performance",
+        "title": "Trusted by Industry Leaders",
+        "reviews": null,
+        "description": "Delivering reliable wastewater treatment solutions to major food and beverage companies worldwide since 1985."
+      },
+      "awards_recognition": {
+        "tag": "Industry Experience",
+        "content": [
+          {
+            "title": "40+ Years in Business",
+            "images": [
+              {
+                "context": "size:72x72#certification#1:1",
+                "alt_text": "Mixing Systems 40 years of experience badge",
+                "image_id": null,
+                "image_url": "https://file-host.link/certifications/_default/72x72.svg",
+                "description": "40 years experience certified"
+              }
+            ],
+            "description": "Serving the wastewater treatment industry since 1985"
+          },
+          {
+            "title": "Hundreds of Engineered Projects",
+            "images": [
+              {
+                "context": "size:72x72#certification#1:1",
+                "alt_text": "Global installations verification badge",
+                "image_id": null,
+                "image_url": "https://file-host.link/certifications/_default/72x72.svg",
+                "description": "Hundreds of wastewater systems engineered worldwide"
+              }
+            ],
+            "description": "Proven systems operating worldwide across multiple industries"
+          },
+          {
+            "title": "Fortune 500 Clients",
+            "images": [
+              {
+                "context": "size:72x72#certification#1:1",
+                "alt_text": "Trusted by major corporations badge",
+                "image_id": null,
+                "image_url": "https://file-host.link/certifications/_default/72x72.svg",
+                "description": "Fortune 500 trusted provider certified"
+              }
+            ],
+            "description": "Trusted by industry leaders like Tyson, Cargill, and Coca Cola"
+          }
+        ],
+        "heading": "Awards and Recognition"
+      },
+      "service_description": {
+        "cta_submit_label": "Submit"
+      }
+    },
+    "description": "Transform your food and beverage facility's wastewater challenges into opportunities with Mixing Systems' advanced jet aeration and mixing technology. Our specialized solutions deliver superior treatment efficiency for high-organic-load wastewater from meat processing, dairy operations, brewing facilities, and other food production environments, ensuring regulatory compliance while reducing energy costs compared to conventional systems.",
+    "published_at": 1770885746362,
+    "last_modified_at": 1781705300917,
+    "interlinking_description": "Comprehensive wastewater treatment solutions specifically engineered for the food and beverage industry. Features advanced jet aeration systems, custom mixing technologies, and comprehensive solutions designed to handle high-BOD wastewater from food processing, brewing, dairy, and meat production facilities with superior oxygen transfer efficiency and reduced operating costs."
+  },
+  "difficulty": 0,
+  "page_status": "PUBLISHED",
+  "renderer_config": null
+}

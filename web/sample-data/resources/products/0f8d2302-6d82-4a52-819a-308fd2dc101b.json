@@ -1,0 +1,80 @@
+{
+  "id": "0f8d2302-6d82-4a52-819a-308fd2dc101b",
+  "details": {
+    "image_id": "4b9b2e6a-bc9a-43e6-98b6-ac49e16ab577",
+    "filter_data": {
+      "System Type": [
+        "Aeration System",
+        "Mixing System"
+      ],
+      "Application Type": [
+        "Wastewater Treatment",
+        "Chemical Processing",
+        "Food & Beverage",
+        "Oil & Petrochemical",
+        "Mining"
+      ],
+      "Tank Depth Range (feet)": {
+        "max": 65,
+        "min": 20
+      },
+      "Materials of Construction": [
+        "Fiberglass Reinforced Plastic (FRP)",
+        "316 Stainless Steel",
+        "Duplex Stainless Steel",
+        "440 Stainless Steel"
+      ]
+    },
+    "product_key": "water tank mixing systems",
+    "manufacturer": "Mixing Systems, Inc.",
+    "product_name": "Water Tank Aerator",
+    "product_media": [
+      {
+        "url": "https://file-host.link/website/mixing-rl03u7/assets/refined-images/1770836356028702_1c543133eca34dcca817bad2c0136f25/1080.webp"
+      }
+    ],
+    "support_service": [
+      "Technical Support",
+      "Custom Design and Engineering Services",
+      "CFD Modeling and Analysis",
+      "Installation Assistance"
+    ],
+    "served_locations": [
+      "USA",
+      "Global"
+    ],
+    "shipping_returns": "Fast, easy installation with prefabricated sections. Systems expected to last 20+ years in continuous operation. Specific shipping and return details available upon request.",
+    "key_features_usps": [
+      "No moving or rotating components within the tank, allowing for easier operation and maintenance than other mixers or agitators",
+      "Preferred and cost-effective for large (10,000+ gallon) or deep (20+ ft) tank applications",
+      "Energy efficient with up to 40% energy reductions over other aeration methods",
+      "Custom mixing analyses using computational fluid dynamics (CFD) modeling software",
+      "Expected lifespan of 20+ years in continuous operation with corrosion resistant materials"
+    ],
+    "ownership_options": [
+      "Purchase"
+    ],
+    "product_identifier": null,
+    "pricing_information": "Pricing Available on Request",
+    "applications_use_cases": [
+      "Wastewater treatment - equalization tanks, storm holding tanks, sludge mixing, aerobic and anaerobic digesters",
+      "Mining - mixing phosphoric acid tanks for solids suspension",
+      "Oil and Petrochemical - recirculating basic sediment and water within crude oil storage tanks, blending fuel oil tanks",
+      "Food and Agriculture - corn wet milling and processing, beverage blending",
+      "Chemical Manufacturing - blending for chemical reactions and synthesis, pH control, gas dispersion",
+      "Pulp and Paper - waste tanks and leachate tanks"
+    ],
+    "regulatory_information": null,
+    "associate_certifications": null,
+    "technical_specifications": {
+      "Nozzle_Hardness": "Brinell hardness of 450+",
+      "Connection_Types": "Flanged connections, welded connections, Victaulic connections",
+      "System_Components": "Mixing manifolds with entrainment openings on jet nozzles, recirculation pumps",
+      "Operating_Principle": "Eductor principle with no moving parts within tank",
+      "Design_Configurations": "Directional Mix Jet Mixers, Bidirectional Mix Jet Mixers, Eddy Jet Mixers, Hydraulic Sludge Mixers",
+      "Nozzle_Wall_Thickness": "1-inch",
+      "Tank_Size_Suitability": "10,000+ gallon or 20+ ft deep tanks",
+      "Materials_of_Construction": "Fiberglass reinforced plastic (FRP), 316 stainless steel, 440 stainless steel, duplex stainless steel, high chrome stainless steel"
+    }
+  }
+}
