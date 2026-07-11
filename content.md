@@ -354,6 +354,19 @@ The wire protocol MCP uses. It's a simple standard: every message has jsonrpc: "
 "What does 'stateless' mean here?"
 Our server doesn't maintain sessions between requests. Each POST is independent. This makes it simple to deploy (no session storage, no websocket connections) but means every request re-reads the index from disk. Real MCP also supports long-lived sessions over SSE/WebSocket — we chose stateless HTTP for simplicity and because our use case doesn't need streaming.
 
+"Why does Claude Code make a GET /api/mcp call, and why does it get 405?"
+This is expected behavior in the MCP Streamable HTTP transport spec. After initialize, the client attempts a GET to open an SSE (Server-Sent Events) stream — a long-lived connection where the server can push notifications to the client (like tools/listChanged, progress updates, etc.).
+
+The full sequence is:
+  POST initialize                → 200 (handshake)
+  POST notifications/initialized → 202 (client tells server "I'm ready")
+  GET  /api/mcp                  → 405 (probe for SSE stream)
+  POST tools/list                → 200 (enumerate tools)
+
+Our server returns 405 because we're stateless — we don't support server-initiated notifications. The client handles the 405 gracefully and moves on. This is explicitly allowed by the spec. We advertise `"tools": { "listChanged": false }` which means "my tools won't change mid-session, you don't need a notification channel."
+
+We do NOT need to support this. If we ever wanted streaming (e.g., progress updates during a slow tool call), we'd implement a GET handler returning `text/event-stream`. For our use case — stateless, fixed tool set, fast responses — there's no benefit.
+
 "What's listChanged: false?"
 It tells the client "my list of tools won't change during our conversation." If this were true (set to true), the server could notify the client mid-session that new tools appeared (e.g., after an admin enables a feature). We don't need that — our 8 tools are fixed.
 
@@ -546,3 +559,34 @@ Lead:         "submit_inquiry({name, email, msg})"  (tools/call → prod API)
 ```
 
 The Tool Playground proves the whole stack is live: real content, real search, real lead capture — all through a standards-compliant protocol that any AI agent speaks natively.
+
+---
+
+# How to Demo?
+1. Run claude mcp add mixing-systems --transport http http://localhost:3099/api/mcp
+2. Ask some questions specific to mixing-system from inside claude code.
+3. It should produce output logs as follows:
+```
+[MCP] 2026-07-10T23:18:16.356Z | initialize | protocolVersion:2025-11-25 | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 200 in 211ms
+[MCP] 2026-07-10T23:18:16.364Z | notifications/initialized | notification (no response) | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 202 in 4ms
+[MCP] 2026-07-10T23:18:16.369Z | GET | rejected — must use POST | client:Claude Code | ip:::1 | ua:claude-code/2.1.183 (cli)
+ GET /api/mcp 405 in 5ms
+[MCP] 2026-07-10T23:18:16.370Z | tools/list | enumerate tools | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 200 in 3ms
+[MCP] 2026-07-10T23:18:56.895Z | initialize | protocolVersion:2025-11-25 | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 200 in 3ms
+[MCP] 2026-07-10T23:18:56.908Z | notifications/initialized | notification (no response) | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 202 in 5ms
+[MCP] 2026-07-10T23:18:56.914Z | GET | rejected — must use POST | client:Claude Code | ip:::1 | ua:claude-code/2.1.183 (cli)
+ GET /api/mcp 405 in 5ms
+[MCP] 2026-07-10T23:18:56.915Z | tools/list | enumerate tools | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 200 in 6ms
+[MCP] 2026-07-10T23:25:37.535Z | tools/call → get_business_info | args:{} | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 200 in 7ms
+[MCP] 2026-07-10T23:26:03.160Z | tools/call → list_products | args:{} | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 200 in 6ms
+[MCP] 2026-07-10T23:26:05.658Z | tools/call → list_services | args:{} | client:Claude Code | ip:::1 | 0ms | ua:claude-code/2.1.183 (cli)
+ POST /api/mcp 200 in 6ms
+```
